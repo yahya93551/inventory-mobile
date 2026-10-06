@@ -32,12 +32,23 @@ type Product = {
   conversion_rate?: number | null;
   stock_remainder?: number | null;
   allocated_quantity?: number;
+  allocation_availability?: {
+    base_quantity: number;
+    converted_quantity: number;
+    converted_unit: string | null;
+    conversion_rate: number | null;
+  };
 };
 
-type SaleInput = {
+type SaleItemInput = {
   product_id: string;
   quantity: number;
   unit?: 'base' | 'converted';
+};
+
+type SaleInput = {
+  idempotency_key: string;
+  items: SaleItemInput[];
   order_id?: string;
   customer_name?: string;
   customer_phone?: string;
@@ -65,6 +76,20 @@ function applySearch(query: any, search: string) {
   if (!value) return query;
   const escaped = value.replace(/[,]/g, ' ');
   return query.or(`product_name.ilike.%${escaped}%,order_id.ilike.%${escaped}%,customer_name.ilike.%${escaped}%,customer_phone.ilike.%${escaped}%`);
+}
+
+async function loadSaleProducts(): Promise<Product[]> {
+  const pageSize = 100;
+  const firstPage = await callWebApi<{ products: Product[]; count: number }>(`/api/products?page=1&per_page=${pageSize}`);
+  const pageCount = Math.ceil(Number(firstPage.count || 0) / pageSize);
+  if (pageCount <= 1) return firstPage.products || [];
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: pageCount - 1 }, (_, index) =>
+      callWebApi<{ products: Product[]; count: number }>(`/api/products?page=${index + 2}&per_page=${pageSize}`)
+    )
+  );
+  return [firstPage, ...remainingPages].flatMap((page) => page.products || []);
 }
 
 export function useSales(): SalesState {
@@ -97,25 +122,17 @@ export function useSales(): SalesState {
           salesQuery = salesQuery.gte('created_at', `${date}T00:00:00.000Z`).lt('created_at', `${date}T23:59:59.999Z`);
         }
 
-        let productsQuery = supabase.from('products').select('id,name,category,price,stock,base_unit,converted_unit,conversion_rate,stock_remainder').order('created_at', { ascending: false }).limit(100);
-        const [salesResult, productsResult, settingsResult, takesResult] = await Promise.all([
+        const [salesResult, saleProducts, settingsResult] = await Promise.all([
           salesQuery,
-          productsQuery,
+          loadSaleProducts(),
           supabase.from('business_settings').select('business_type').maybeSingle(),
-          role === 'sales' ? supabase.from('inventory_takes').select('product_id,remaining_quantity').eq('user_id', user.id).gt('remaining_quantity', 0) : Promise.resolve({ data: [], error: null }),
         ]);
         if (salesResult.error) throw new Error(salesResult.error.message);
-        if (productsResult.error) throw new Error(productsResult.error.message);
         if (settingsResult.error) throw new Error(settingsResult.error.message);
-        if (takesResult.error) throw new Error(takesResult.error.message);
         if (mounted) {
           setSales((salesResult.data || []) as Sale[]);
           setBusinessType(settingsResult.data?.business_type || 'custom');
-          const allocations = new Map<string, number>();
-          for (const take of takesResult.data || []) {
-            if (take.product_id) allocations.set(take.product_id, (allocations.get(take.product_id) || 0) + Number(take.remaining_quantity || 0));
-          }
-          setProducts((productsResult.data || []).map((product) => ({ ...product, allocated_quantity: allocations.get(product.id) || 0 })) as Product[]);
+          setProducts(saleProducts);
         }
       } catch (loadError) {
         if (mounted) setError(loadError instanceof Error ? loadError.message : 'Unable to load sales.');

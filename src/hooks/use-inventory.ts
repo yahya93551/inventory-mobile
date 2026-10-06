@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth, useTenantRole, type TenantRole } from '@/auth';
 import { supabase } from '@/lib/supabase';
+import { callWebApi } from '@/lib/web-api';
 
 type Product = {
   id: string;
@@ -162,8 +163,24 @@ export function useInventory(): InventoryState {
   }, [refresh, tenantId, user]);
 
   const updateProduct = useCallback(async (id: string, input: Partial<ProductInput>) => {
-    const { error: updateError } = await supabase.from('products').update(input).eq('id', id);
-    if (updateError) return updateError.message;
+    const updatesConversionMetadata =
+      Object.prototype.hasOwnProperty.call(input, 'base_unit')
+      || Object.prototype.hasOwnProperty.call(input, 'converted_unit')
+      || Object.prototype.hasOwnProperty.call(input, 'conversion_rate');
+
+    if (updatesConversionMetadata) {
+      try {
+        await callWebApi('/api/products', {
+          method: 'PATCH',
+          body: JSON.stringify({ id, updates: input }),
+        });
+      } catch (updateError) {
+        return updateError instanceof Error ? updateError.message : 'Unable to update product.';
+      }
+    } else {
+      const { error: updateError } = await supabase.from('products').update(input).eq('id', id);
+      if (updateError) return updateError.message;
+    }
     refresh();
     return null;
   }, [refresh]);
