@@ -8,7 +8,7 @@ export function EmptyState({ title, description, action }: { title: string; desc
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+      <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>{title}</Text>
       {description && <Text style={[styles.description, { color: theme.textSecondary }]}>{description}</Text>}
       {action}
     </View>

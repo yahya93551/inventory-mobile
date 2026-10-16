@@ -1,2 +1,2 @@
 export { AuthProvider, useAuth } from './AuthProvider';
-export { useTenantRole, type TenantRole } from './use-tenant-role';
+export { TenantRoleProvider, useTenantRole, type TenantRole } from './use-tenant-role';

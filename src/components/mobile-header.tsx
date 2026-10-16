@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ReactNode } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Radius, Spacing, Typography } from '@/constants/theme';
+import { Layout, Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type MobileHeaderProps = {
@@ -38,10 +38,10 @@ export function MobileHeader({ title, subtitle, action, onActionPress, actionLab
 }
 
 const styles = StyleSheet.create({
-  container: { minHeight: 76, paddingHorizontal: Spacing.four, paddingBottom: Spacing.three, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two },
+  container: { minHeight: Layout.headerMinHeight, paddingHorizontal: Layout.pagePadding, paddingBottom: Spacing.three, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two },
   copy: { flex: 1, gap: Spacing.one },
   title: { ...Typography.screenTitle },
   subtitle: { ...Typography.caption },
-  action: { minWidth: 44, minHeight: 44, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  action: { minWidth: Layout.headerActionSize, minHeight: Layout.headerActionSize, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
   pressed: { opacity: 0.7 },
 });

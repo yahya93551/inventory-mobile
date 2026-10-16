@@ -7,7 +7,7 @@ export function LoadingState({ label = 'Loading...' }: { label?: string }) {
   const theme = useTheme();
 
   return (
-    <View accessibilityRole="progressbar" style={styles.container}>
+    <View accessibilityRole="progressbar" accessibilityLabel={label} style={styles.container}>
       <ActivityIndicator color={theme.primary} size="small" />
       <Text style={[styles.label, { color: theme.textSecondary }]}>{label}</Text>
     </View>

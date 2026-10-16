@@ -12,6 +12,7 @@
     },
     "android": {
       "package": "com.yahya93551.myinventory",
+      "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -25,7 +26,7 @@
         {
           "backgroundColor": "#208AEF",
           "image": "./assets/images/myinventory-logo.png",
-          "imageWidth": 76
+          "imageWidth": 280
         }
       ],
       "expo-secure-store"

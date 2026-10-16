@@ -7,16 +7,24 @@ type BadgeVariant = 'primary' | 'secondary' | 'success' | 'warning' | 'danger' |
 
 export function Badge({ label, variant = 'neutral' }: { label: string; variant?: BadgeVariant }) {
   const theme = useTheme();
-  const color = {
-    primary: theme.primary,
-    secondary: theme.secondary,
-    success: theme.success,
-    warning: theme.warning,
-    danger: theme.danger,
-    neutral: theme.textSecondary,
+  const backgroundColor = {
+    primary: theme.primarySurface,
+    secondary: theme.secondarySurface,
+    success: theme.successSurface,
+    warning: theme.warningSurface,
+    danger: theme.dangerSurface,
+    neutral: theme.backgroundSelected,
+  }[variant];
+  const textColor = {
+    primary: theme.primaryForeground,
+    secondary: theme.secondaryForeground,
+    success: theme.successForeground,
+    warning: theme.warningForeground,
+    danger: theme.dangerForeground,
+    neutral: theme.text,
   }[variant];
 
-  return <Text style={[styles.base, { color, backgroundColor: `${color}22` }]}>{label}</Text>;
+  return <Text accessibilityLabel={label} style={[styles.base, { color: textColor, backgroundColor }]}>{label}</Text>;
 }
 
 const styles = StyleSheet.create({

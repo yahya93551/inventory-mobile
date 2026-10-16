@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/auth';
-import { Button, Card, Input } from '@/components/ui';
+import { Button, Card, Input, KeyboardAwareScrollView } from '@/components/ui';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -56,10 +56,13 @@ export default function ResetPasswordScreen() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboard}>
-        <View style={styles.content}>
+      <KeyboardAwareScrollView contentContainerStyle={styles.content}>
           <View style={styles.brandBlock}>
-            <View style={[styles.brandMark, { backgroundColor: theme.primary }]}><Text style={styles.brandMarkText}>M</Text></View>
+            <Image
+              source={require('../../../assets/images/icon.png')}
+              style={styles.brandMark}
+              accessibilityLabel="MyInventory logo"
+            />
             <Text style={[styles.brand, { color: theme.text }]}>MyInventory</Text>
           </View>
           <Card style={styles.card}>
@@ -75,19 +78,16 @@ export default function ResetPasswordScreen() {
             <Input label="Confirm password" placeholder="Enter the password again" secureTextEntry={!showPassword} textContentType="newPassword" value={confirmation} onChangeText={setConfirmation} onSubmitEditing={handleSubmit} />
             <Button label="Update password" loading={submitting} fullWidth onPress={handleSubmit} />
           </Card>
-        </View>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
-  keyboard: { flex: 1 },
-  content: { flex: 1, justifyContent: 'center', padding: Spacing.four, gap: Spacing.four },
+  content: { flexGrow: 1, justifyContent: 'center', padding: Spacing.four, gap: Spacing.four },
   brandBlock: { alignItems: 'center' },
-  brandMark: { width: 54, height: 54, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.two },
-  brandMarkText: { color: '#ffffff', fontSize: 28, fontWeight: '800' },
+  brandMark: { width: 54, height: 54, borderRadius: Radius.lg, marginBottom: Spacing.two },
   brand: { fontSize: 26, fontWeight: '700' },
   card: { gap: Spacing.three },
   title: { ...Typography.sectionTitle },

@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, View, type ScrollViewProps, type ViewStyle } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 
-import { Spacing } from '@/constants/theme';
+import { Layout, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type ScreenContainerProps = ScrollViewProps & {
@@ -29,6 +29,6 @@ export function ScreenContainer({ children, scroll = true, edges = ['top'], cont
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
-  content: { padding: Spacing.four, gap: Spacing.four },
+  content: { padding: Layout.pagePadding, gap: Spacing.xl },
   fill: { flex: 1 },
 });

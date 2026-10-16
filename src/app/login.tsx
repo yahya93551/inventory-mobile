@@ -1,18 +1,20 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Redirect } from 'expo-router';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Link, Redirect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/auth';
-import { Button, Card, Input } from '@/components/ui';
+import { Button, Card, Input, KeyboardAwareScrollView } from '@/components/ui';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function LoginScreen() {
   const theme = useTheme();
-  const { configured, loading: authLoading, session, signIn, sendPasswordReset } = useAuth();
+  const { accountCreated } = useLocalSearchParams<{ accountCreated?: string }>();
+  const { configured, loading: authLoading, session, mfaChallenge, signIn, verifyMfa, sendPasswordReset } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,9 +34,18 @@ export default function LoginScreen() {
     }
 
     setSubmitting(true);
+    if (mfaChallenge) {
+      const verification = await verifyMfa(mfaCode);
+      setSubmitting(false);
+      if (verification.error) setError(verification.error);
+      else setNotice('MFA verified. Signing you in.');
+      return;
+    }
+
     const result = await signIn(normalizedEmail, password);
     setSubmitting(false);
     if (result.error) setError(result.error);
+    else if (result.mfaRequired) setNotice('Enter your verification code.');
   };
 
   const handleForgotPassword = async () => {
@@ -55,12 +66,13 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboard}>
-        <View style={styles.content}>
+      <KeyboardAwareScrollView contentContainerStyle={styles.content}>
           <View style={styles.brandBlock}>
-            <View style={[styles.brandMark, { backgroundColor: theme.primary }]}>
-              <Text style={styles.brandMarkText}>M</Text>
-            </View>
+            <Image
+              source={require('../../assets/images/icon.png')}
+              style={styles.brandMark}
+              accessibilityLabel="MyInventory logo"
+            />
             <Text style={[styles.brand, { color: theme.text }]}>MyInventory</Text>
             <Text style={[styles.tagline, { color: theme.textSecondary }]}>Inventory and sales, clearly managed.</Text>
           </View>
@@ -71,6 +83,7 @@ export default function LoginScreen() {
 
             {!configured && <Text style={[styles.message, { color: theme.warning }]}>Add the public Supabase environment variables to connect this app.</Text>}
             {error && <Text accessibilityRole="alert" style={[styles.message, { color: theme.danger }]}>{error}</Text>}
+            {accountCreated === 'success' && <Text accessibilityRole="alert" style={[styles.message, { color: theme.success }]}>Your account was created successfully. Sign in to continue; if prompted, confirm your email first.</Text>}
             {notice && <Text style={[styles.message, { color: theme.success }]}>{notice}</Text>}
 
             <Input
@@ -103,26 +116,40 @@ export default function LoginScreen() {
               </Pressable>
             </View>
 
-            <Button label="Sign in" loading={submitting} fullWidth onPress={handleLogin} />
-            <Pressable accessibilityRole="button" disabled={submitting} onPress={handleForgotPassword} style={styles.forgotButton}>
+            {mfaChallenge && (
+              <Input
+                autoCapitalize="none"
+                autoComplete="one-time-code"
+                keyboardType="number-pad"
+                label={mfaChallenge.method === 'phone' ? 'SMS verification code' : 'Authenticator code'}
+                placeholder="Six-digit code"
+                value={mfaCode}
+                onChangeText={setMfaCode}
+              />
+            )}
+
+            <Button label={mfaChallenge ? 'Verify code' : 'Sign in'} loading={submitting} fullWidth onPress={handleLogin} />
+            {!mfaChallenge && <Pressable accessibilityRole="button" disabled={submitting} onPress={handleForgotPassword} style={styles.forgotButton}>
               <Text style={[styles.forgotText, { color: theme.primary }]}>Forgot password?</Text>
-            </Pressable>
+            </Pressable>}
+            {!mfaChallenge && <Link href="/signup" asChild>
+              <Pressable accessibilityRole="button" disabled={submitting} style={styles.forgotButton}>
+                <Text style={[styles.forgotText, { color: theme.primary }]}>Create account</Text>
+              </Pressable>
+            </Link>}
           </Card>
 
           <Text style={[styles.footer, { color: theme.textMuted }]}>Use the same account as the MyInventory web app.</Text>
-        </View>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
-  keyboard: { flex: 1 },
-  content: { flex: 1, justifyContent: 'center', padding: Spacing.four, gap: Spacing.four },
+  content: { flexGrow: 1, justifyContent: 'center', padding: Spacing.four, gap: Spacing.four },
   brandBlock: { alignItems: 'center', gap: Spacing.one },
-  brandMark: { width: 58, height: 58, borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.two },
-  brandMarkText: { color: '#ffffff', fontSize: 30, fontWeight: '800' },
+  brandMark: { width: 58, height: 58, borderRadius: Radius.lg, marginBottom: Spacing.two },
   brand: { fontSize: 28, fontWeight: '700' },
   tagline: { ...Typography.caption },
   card: { gap: Spacing.three },

@@ -1,6 +1,6 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
 
-import { Radius, Spacing, Typography } from '@/constants/theme';
+import { ControlHeights, Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'success' | 'warning' | 'ghost';
@@ -54,11 +54,11 @@ export function Button({
 
 function stylesForVariant(theme: ReturnType<typeof useTheme>, variant: ButtonVariant) {
   const variants = {
-    primary: { container: { backgroundColor: theme.primary }, text: { color: '#ffffff' } },
+    primary: { container: { backgroundColor: theme.primary }, text: { color: theme.primaryText } },
     secondary: { container: { backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1 }, text: { color: theme.text } },
-    danger: { container: { backgroundColor: theme.danger }, text: { color: '#ffffff' } },
-    success: { container: { backgroundColor: theme.success }, text: { color: '#ffffff' } },
-    warning: { container: { backgroundColor: theme.warning }, text: { color: '#ffffff' } },
+    danger: { container: { backgroundColor: theme.dangerAction }, text: { color: theme.onDanger } },
+    success: { container: { backgroundColor: theme.success }, text: { color: theme.successText } },
+    warning: { container: { backgroundColor: theme.warning }, text: { color: theme.warningText } },
     ghost: { container: { backgroundColor: 'transparent', borderColor: theme.border, borderWidth: 1 }, text: { color: theme.textSecondary } },
   } as const;
 
@@ -67,7 +67,7 @@ function stylesForVariant(theme: ReturnType<typeof useTheme>, variant: ButtonVar
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 44,
+    minHeight: ControlHeights.standard,
     borderRadius: Radius.md,
     paddingHorizontal: Spacing.three,
     flexDirection: 'row',
@@ -75,11 +75,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.two,
   },
-  sm: { minHeight: 40, paddingHorizontal: Spacing.two },
-  md: { minHeight: 48 },
-  lg: { minHeight: 54, paddingHorizontal: Spacing.four },
+  sm: { minHeight: ControlHeights.compact, paddingHorizontal: Spacing.two },
+  md: { minHeight: ControlHeights.standard },
+  lg: { minHeight: ControlHeights.large, paddingHorizontal: Spacing.four },
   fullWidth: { width: '100%' },
-  label: { ...Typography.label },
+  label: { ...Typography.button },
   pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
   disabled: { opacity: 0.5 },
 });

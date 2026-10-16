@@ -2,7 +2,7 @@ import { StyleSheet, View } from 'react-native';
 import type { ReactNode } from 'react';
 
 import { MobileHeader } from '@/components/mobile-header';
-import { Spacing } from '@/constants/theme';
+import { Layout } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type AppShellProps = {
@@ -27,5 +27,5 @@ export function AppShell({ title, subtitle, action, onActionPress, actionLabel, 
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { flex: 1, paddingHorizontal: Spacing.four, paddingTop: Spacing.four },
+  content: { flex: 1, paddingHorizontal: Layout.pagePadding, paddingTop: Layout.contentTop },
 });

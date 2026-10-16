@@ -1,24 +1,54 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { StyleSheet, View } from 'react-native';
 
-import { AuthProvider } from '@/auth';
-import { ThemePreferenceProvider } from '@/hooks/use-theme-preference';
+import { AuthProvider, TenantRoleProvider } from '@/auth';
+import { NetworkStatusBanner } from '@/components/network-status-banner';
+import { ThemePreferenceProvider, useThemePreference } from '@/hooks/use-theme-preference';
+import { Colors } from '@/constants/theme';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
   return (
-    <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+    <ThemePreferenceProvider>
+      <ThemedApp />
+    </ThemePreferenceProvider>
+  );
+}
+
+function ThemedApp() {
+  const { colorScheme } = useThemePreference();
+  const isDark = colorScheme === 'dark';
+  const colors = Colors[isDark ? 'dark' : 'light'];
+  const baseTheme = isDark ? DarkTheme : DefaultTheme;
+  const navigationTheme = {
+    ...baseTheme,
+    colors: {
+      ...baseTheme.colors,
+      primary: colors.primary,
+      background: colors.background,
+      card: colors.card,
+      text: colors.text,
+      border: colors.border,
+      notification: colors.danger,
+    },
+  };
+
+  return (
+    <ThemeProvider value={navigationTheme}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <ThemePreferenceProvider>
-        <AuthProvider>
-          <Stack screenOptions={{ headerShown: false }} />
-        </AuthProvider>
-      </ThemePreferenceProvider>
+      <AuthProvider>
+        <TenantRoleProvider>
+          <View style={styles.app}>
+            <NetworkStatusBanner />
+            <Stack screenOptions={{ headerShown: false }} />
+          </View>
+        </TenantRoleProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }
+
+const styles = StyleSheet.create({ app: { flex: 1 } });

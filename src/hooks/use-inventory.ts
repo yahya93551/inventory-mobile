@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth, useTenantRole, type TenantRole } from '@/auth';
 import { supabase } from '@/lib/supabase';
+import { callWebApi } from '@/lib/web-api';
 
 type Product = {
   id: string;
@@ -72,6 +73,7 @@ export function useInventory(): InventoryState {
   const [categories, setCategories] = useState<string[]>([]);
   const [visibleFields, setVisibleFields] = useState<Set<string>>(fallbackVisibleFields);
   const [search, setSearchState] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [stockFilter, setStockFilter] = useState<StockFilter>('all');
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -85,7 +87,10 @@ export function useInventory(): InventoryState {
 
   useEffect(() => {
     if (authLoading || roleLoading || !user) return;
-    const timer = setTimeout(() => setPage(0), 300);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(0);
+    }, 300);
     return () => clearTimeout(timer);
   }, [authLoading, roleLoading, user, search, stockFilter]);
 
@@ -105,7 +110,7 @@ export function useInventory(): InventoryState {
           .select('*')
           .order('created_at', { ascending: false })
           .range(page * pageSize, page * pageSize + pageSize - 1);
-        productQuery = applySearch(productQuery, search);
+        productQuery = applySearch(productQuery, debouncedSearch);
 
         const [productsResult, categoriesResult, fieldsResult] = await Promise.all([
           productQuery,
@@ -135,7 +140,7 @@ export function useInventory(): InventoryState {
 
     void load();
     return () => { mounted = false; };
-  }, [attempt, authLoading, roleLoading, user, page, search]);
+  }, [attempt, authLoading, roleLoading, user, page, debouncedSearch]);
 
   const loadMore = useCallback(() => {
     if (!loading && !loadingMore && hasMore) setPage((value) => value + 1);
@@ -162,8 +167,24 @@ export function useInventory(): InventoryState {
   }, [refresh, tenantId, user]);
 
   const updateProduct = useCallback(async (id: string, input: Partial<ProductInput>) => {
-    const { error: updateError } = await supabase.from('products').update(input).eq('id', id);
-    if (updateError) return updateError.message;
+    const updatesConversionMetadata =
+      Object.prototype.hasOwnProperty.call(input, 'base_unit')
+      || Object.prototype.hasOwnProperty.call(input, 'converted_unit')
+      || Object.prototype.hasOwnProperty.call(input, 'conversion_rate');
+
+    if (updatesConversionMetadata) {
+      try {
+        await callWebApi('/api/products', {
+          method: 'PATCH',
+          body: JSON.stringify({ id, updates: input }),
+        });
+      } catch (updateError) {
+        return updateError instanceof Error ? updateError.message : 'Unable to update product.';
+      }
+    } else {
+      const { error: updateError } = await supabase.from('products').update(input).eq('id', id);
+      if (updateError) return updateError.message;
+    }
     refresh();
     return null;
   }, [refresh]);

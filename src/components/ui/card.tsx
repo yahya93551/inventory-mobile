@@ -10,13 +10,14 @@ type CardProps = PressableProps & {
   style?: StyleProp<ViewStyle>;
 };
 
-export function Card({ children, compact = false, interactive = false, disabled, style, ...props }: CardProps) {
+export function Card({ children, compact = false, interactive = false, disabled, style, accessibilityRole, accessibilityState, ...props }: CardProps) {
   const theme = useTheme();
 
   const cardStyle = [
     styles.base,
     { backgroundColor: theme.card, borderColor: theme.border },
     compact ? styles.compact : styles.standard,
+    disabled && styles.disabled,
     style,
   ];
 
@@ -27,10 +28,11 @@ export function Card({ children, compact = false, interactive = false, disabled,
   return (
     <Pressable
       disabled={disabled}
+      accessibilityRole={accessibilityRole ?? 'button'}
+      accessibilityState={{ ...accessibilityState, disabled: Boolean(disabled) }}
       style={({ pressed }) => [
         ...cardStyle,
-        pressed && styles.pressed,
-        style,
+        pressed && !disabled && styles.pressed,
       ]}
       {...props}>
       {children}
@@ -42,5 +44,6 @@ const styles = StyleSheet.create({
   base: { borderWidth: 1, borderRadius: Radius.lg },
   compact: { padding: Spacing.three },
   standard: { padding: Spacing.four },
+  disabled: { opacity: 0.55 },
   pressed: { opacity: 0.82 },
 });
