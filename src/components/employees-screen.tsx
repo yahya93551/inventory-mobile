@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AppShell } from '@/components/app-shell';
-import { Badge, Button, Card, EmptyState, Input, KeyboardAwareScrollView, LoadingState } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, FeedbackMessage, Input, KeyboardAwareScrollView, LoadingState } from '@/components/ui';
 import { Spacing, Typography } from '@/constants/theme';
 import { useEmployees, type Employee } from '@/hooks/use-employees';
 import { useTheme } from '@/hooks/use-theme';
@@ -17,6 +17,7 @@ export function EmployeesScreen({ onBack }: { onBack?: () => void } = {}) {
   const [password, setPassword] = useState('');
   const [newRole, setNewRole] = useState<'accountant' | 'sales'>('sales');
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const isOwner = state.role === 'owner';
 
   const add = async () => {
@@ -27,12 +28,41 @@ export function EmployeesScreen({ onBack }: { onBack?: () => void } = {}) {
     if (message) setError(message); else { setFormOpen(false); setIdentifier(''); setPassword(''); }
   };
 
-  return <AppShell title="Employees" subtitle="Manage tenant team access and roles." action={isOwner ? <Text style={{ color: theme.primary, fontSize: 26 }}>+</Text> : undefined} actionLabel="Add employee" onActionPress={isOwner ? () => setFormOpen(true) : undefined}><ScrollView contentContainerStyle={styles.content}>{onBack && <Button label="Back to More" variant="ghost" onPress={onBack} />}{!isOwner && !state.loading ? <Card><EmptyState title="Owner access required" description="Only owners can manage employees." /></Card> : state.loading ? <Card><LoadingState label="Loading employees..." /></Card> : state.error ? <Card><EmptyState title="Employees unavailable" description={state.error} action={<Button label="Try again" variant="secondary" onPress={state.refresh} />} /></Card> : <><Input value={state.query} onChangeText={state.setQuery} placeholder="Search email or role" />{state.filtered.length === 0 ? <Card><EmptyState title={state.query ? 'No matching employees' : 'No employees yet'} description="Add an accountant or sales user to this tenant." action={!state.query ? <Button label="Add employee" onPress={() => setFormOpen(true)} /> : undefined} /></Card> : state.filtered.map((employee) => <Card key={employee.user_id} compact><View style={styles.row}><View style={styles.copy}><Text style={[styles.email, { color: theme.text }]} numberOfLines={1}>{employee.user_email}</Text><Text style={[styles.date, { color: theme.textSecondary }]}>Added {new Date(employee.created_at).toLocaleDateString()}</Text><Badge label={employee.active ? employee.role : 'Inactive'} variant={employee.active ? 'primary' : 'neutral'} /></View><View style={styles.actions}><Button label="Role" size="sm" variant="secondary" onPress={async () => { const nextRole = employee.role === 'sales' ? 'accountant' : 'sales'; setBusy(true); await state.changeRole(employee.user_id, nextRole); setBusy(false); }} loading={busy} /><Button label="Remove" size="sm" variant="danger" onPress={() => setConfirming(employee)} /></View></View></Card>)}</>}</ScrollView><Modal visible={formOpen} animationType="slide" onRequestClose={() => !busy && setFormOpen(false)}><KeyboardAwareScrollView style={{ backgroundColor: theme.background }} contentContainerStyle={styles.modal}>
+  const changeRole = async (employee: Employee) => {
+    const nextRole = employee.role === 'sales' ? 'accountant' : 'sales';
+    setBusy(true);
+    setActionError(null);
+    try {
+      const message = await state.changeRole(employee.user_id, nextRole);
+      if (message) setActionError(message);
+    } catch (changeError) {
+      setActionError(changeError instanceof Error ? changeError.message : 'Unable to change employee role.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeEmployee = async () => {
+    if (!confirming) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const message = await state.removeEmployee(confirming.user_id);
+      if (message) setActionError(message);
+      else setConfirming(null);
+    } catch (removeError) {
+      setActionError(removeError instanceof Error ? removeError.message : 'Unable to remove employee.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <AppShell title="Employees" subtitle="Manage tenant team access and roles." action={isOwner ? <Text style={{ color: theme.primary, fontSize: 26 }}>+</Text> : undefined} actionLabel="Add employee" onActionPress={isOwner ? () => setFormOpen(true) : undefined}><ScrollView contentContainerStyle={styles.content}>{onBack && <Button label="Back to More" variant="ghost" onPress={onBack} />}{actionError && <FeedbackMessage message={actionError} />}{!isOwner && !state.loading ? <Card><EmptyState title="Owner access required" description="Only owners can manage employees." /></Card> : state.loading ? <Card><LoadingState label="Loading employees..." /></Card> : state.error ? <Card><EmptyState title="Employees unavailable" description={state.error} action={<Button label="Try again" variant="secondary" onPress={state.refresh} />} /></Card> : <><Input value={state.query} onChangeText={state.setQuery} placeholder="Search email or role" />{state.filtered.length === 0 ? <Card><EmptyState title={state.query ? 'No matching employees' : 'No employees yet'} description="Add an accountant or sales user to this tenant." action={!state.query ? <Button label="Add employee" onPress={() => setFormOpen(true)} /> : undefined} /></Card> : state.filtered.map((employee) => <Card key={employee.user_id} compact><View style={styles.row}><View style={styles.copy}><Text style={[styles.email, { color: theme.text }]} numberOfLines={1}>{employee.user_email}</Text><Text style={[styles.date, { color: theme.textSecondary }]}>Added {new Date(employee.created_at).toLocaleDateString()}</Text><Badge label={employee.active ? employee.role : 'Inactive'} variant={employee.active ? 'primary' : 'neutral'} /></View><View style={styles.actions}><Button label="Role" size="sm" variant="secondary" disabled={busy} onPress={() => void changeRole(employee)} /><Button label="Remove" size="sm" variant="danger" disabled={busy} onPress={() => { setActionError(null); setConfirming(employee); }} /></View></View></Card>)}</>}</ScrollView><Modal visible={formOpen} animationType="slide" onRequestClose={() => !busy && setFormOpen(false)}><KeyboardAwareScrollView style={{ backgroundColor: theme.background }} contentContainerStyle={styles.modal}>
 <View style={[styles.modal, { backgroundColor: theme.background }]}><View style={styles.header}><Text style={[styles.title, { color: theme.text }]}>Add employee</Text><Pressable onPress={() => setFormOpen(false)}><Text style={{ color: theme.primary }}>Close</Text></Pressable></View>{error && <Text style={{ color: theme.danger }}>{error}</Text>}<Input label="Email or phone" value={identifier} onChangeText={setIdentifier} placeholder="employee@example.com" autoCapitalize="none" /><Input label="Temporary password" value={password} onChangeText={setPassword} placeholder="At least 6 characters" secureTextEntry /><Text style={[styles.label, { color: theme.text }]}>Role</Text><View style={styles.roleRow}><Button label="Sales" size="sm" variant={newRole === 'sales' ? 'primary' : 'secondary'} onPress={() => setNewRole('sales')} /><Button label="Accountant" size="sm" variant={newRole === 'accountant' ? 'primary' : 'secondary'} onPress={() => setNewRole('accountant')} /></View><Button label="Create employee" loading={busy} fullWidth onPress={add} /></View></KeyboardAwareScrollView></Modal><Modal visible={confirming !== null}
   transparent
   animationType="fade"
-  onRequestClose={() => setConfirming(null)}
-><View style={styles.overlay}><Card style={styles.confirm}><Text style={[styles.title, { color: theme.text }]}>Remove employee?</Text><Text style={{ color: theme.textSecondary }}>This removes the tenant membership for {confirming?.user_email}.</Text><View style={styles.roleRow}><Button label="Cancel" variant="secondary" onPress={() => setConfirming(null)} /><Button label="Remove" variant="danger" loading={busy} onPress={async () => { if (!confirming) return; setBusy(true); const message = await state.removeEmployee(confirming.user_id); setBusy(false); if (message) setError(message); else setConfirming(null); }} /></View></Card></View></Modal></AppShell>;
+  onRequestClose={() => !busy && setConfirming(null)}
+><View style={styles.overlay}><Card style={styles.confirm}><Text style={[styles.title, { color: theme.text }]}>Remove employee?</Text><Text style={{ color: theme.textSecondary }}>This removes the tenant membership for {confirming?.user_email}.</Text>{actionError && <FeedbackMessage message={actionError} />}<View style={styles.roleRow}><Button label="Cancel" variant="secondary" disabled={busy} onPress={() => setConfirming(null)} /><Button label="Remove" variant="danger" loading={busy} onPress={() => void removeEmployee()} /></View></Card></View></Modal></AppShell>;
 }
 
 const styles = StyleSheet.create({

@@ -148,22 +148,29 @@ export function useInventory(): InventoryState {
 
   const addProduct = useCallback(async (input: ProductInput) => {
     if (!user?.id || !tenantId) return { error: 'Your tenant membership could not be verified.', product: null };
+    const { stock_remainder, ...productFields } = input;
     const payload = {
-      ...input,
+      ...productFields,
       name: input.name.trim(),
       category: input.category.trim(),
       base_unit: input.base_unit?.trim() || null,
       converted_unit: input.converted_unit?.trim() || null,
       conversion_rate: input.conversion_rate ?? null,
-      stock_remainder: input.stock_remainder ?? null,
-      tenant_id: tenantId,
-      user_id: user.id,
-      created_by: user.id,
+      ...(typeof stock_remainder === 'number' ? { stock_remainder } : {}),
     };
-    const { data, error: insertError } = await supabase.from('products').insert(payload).select('*').single();
-    if (insertError) return { error: insertError.message, product: null };
-    refresh();
-    return { error: null, product: data as Product };
+    try {
+      const product = await callWebApi<Product>('/api/products', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      refresh();
+      return { error: null, product };
+    } catch (createError) {
+      return {
+        error: createError instanceof Error ? createError.message : 'Unable to add product.',
+        product: null,
+      };
+    }
   }, [refresh, tenantId, user]);
 
   const updateProduct = useCallback(async (id: string, input: Partial<ProductInput>) => {

@@ -10,7 +10,7 @@ import { useTheme } from '@/hooks/use-theme';
 type RouteName = 'home' | 'inventory' | 'sales' | 'reports' | 'more';
 type SymbolName = Exclude<SymbolViewProps['name'], string>;
 
-const tabs: Array<{ name: RouteName; label: string; icon: SymbolName; managementOnly?: boolean }> = [
+const tabs: { name: RouteName; label: string; icon: SymbolName; managementOnly?: boolean }[] = [
   { name: 'home', label: 'Home', icon: { ios: 'house', android: 'home', web: 'home' }, managementOnly: true },
   { name: 'inventory', label: 'Inventory', icon: { ios: 'shippingbox', android: 'inventory_2', web: 'inventory_2' } },
   { name: 'sales', label: 'Sales', icon: { ios: 'cart', android: 'shopping_cart', web: 'shopping_cart' } },

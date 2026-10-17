@@ -5,7 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth, useTenantRole, type TenantRole } from '@/auth';
 import { AppShell } from '@/components/app-shell';
-import { Badge, Button, Card, EmptyState, LoadingState, SectionHeader } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, FeedbackMessage, LoadingState, SectionHeader } from '@/components/ui';
 import { CategoriesScreen } from '@/components/categories-screen';
 import { EmployeesScreen } from '@/components/employees-screen';
 import { SubscriptionScreen } from '@/components/subscription-screen';
@@ -67,6 +67,22 @@ export default function MoreScreen() {
   const { role, loading: roleLoading } = useTenantRole();
   const { signOut } = useAuth();
   const [activeSection, setActiveSection] = useState<'categories' | 'debts' | 'employees' | 'settings' | 'subscription' | null>(null);
+  const [logoutBusy, setLogoutBusy] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+
+  const handleSignOut = async () => {
+    setLogoutBusy(true);
+    setLogoutError(null);
+    try {
+      const result = await signOut();
+      if (result.error) setLogoutError(result.error);
+    } catch (signOutError) {
+      setLogoutError(signOutError instanceof Error ? signOutError.message : 'Unable to log out. Please try again.');
+    } finally {
+      setLogoutBusy(false);
+    }
+  };
+
   const visibleSections = role
     ? menuSections.map((section) => ({ ...section, items: section.items.filter((item) => item.roles.includes(role)) })).filter((section) => section.items.length > 0)
     : [];
@@ -111,7 +127,8 @@ export default function MoreScreen() {
 
         <View style={styles.session}>
           <SectionHeader title="Session" />
-          <Button label="Log out" variant="danger" fullWidth onPress={() => void signOut()} />
+          {logoutError && <FeedbackMessage message={logoutError} />}
+          <Button label="Log out" variant="danger" fullWidth loading={logoutBusy} disabled={logoutBusy} onPress={() => void handleSignOut()} />
         </View>
       </ScrollView>
     </AppShell>
