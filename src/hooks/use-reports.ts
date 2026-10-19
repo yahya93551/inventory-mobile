@@ -22,6 +22,8 @@ type ReportData = {
   perProduct: { name: string; quantity: number; unit: string | null }[];
 };
 
+type ReportSalesSummary = Pick<ReportData, 'sales' | 'revenue' | 'orders' | 'average' | 'latestSale' | 'topProduct' | 'perUser' | 'perProduct'>;
+
 export type ReportsState = { data: ReportData | null; filter: ReportFilter; setFilter: (filter: ReportFilter) => void; loading: boolean; error: string | null; refresh: () => void; };
 
 function safeDate(value: string | null | undefined) { if (!value) return null; const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date; }
@@ -35,13 +37,18 @@ function saleQuantity(sale: Sale) {
   return sale.type === 'return' ? -Math.abs(quantity) : quantity;
 }
 
-async function loadReportSales(filter: ReportFilter, tenantId: string): Promise<Sale[]> {
-  const pageSize = 100;
+async function loadReportSales(filter: ReportFilter, tenantId: string): Promise<ReportSalesSummary> {
+  const pageSize = 1000;
   const since = filter === 'all'
     ? null
     : new Date(Date.now() - (filter === '7d' ? 7 : 30) * 86400000).toISOString();
-  const sales: Sale[] = [];
+  const recentSales: Sale[] = [];
   const seenIds = new Set<string>();
+  const productTotals = new Map<string, number>();
+  const userTotals = new Map<string, number>();
+  const productQuantities = new Map<string, { quantity: number; unit: string | null }>();
+  let revenue = 0;
+  let orders = 0;
   let offset = 0;
 
   while (true) {
@@ -62,13 +69,36 @@ async function loadReportSales(filter: ReportFilter, tenantId: string): Promise<
         throw new Error('Sales pagination returned duplicate or invalid records. Refresh the report or contact support.');
       }
       seenIds.add(sale.id);
+      if (!inFilter(sale, filter)) continue;
+
+      const name = sale.product_name || 'Unknown';
+      const quantity = saleQuantity(sale);
+      revenue += saleRevenue(sale);
+      if (sale.type !== 'return') orders += 1;
+      productTotals.set(name, (productTotals.get(name) || 0) + quantity);
+      const user = sale.user_id || 'unknown';
+      userTotals.set(user, (userTotals.get(user) || 0) + saleRevenue(sale));
+      const current = productQuantities.get(name) || { quantity: 0, unit: sale.quantity_unit || null };
+      current.quantity += quantity;
+      current.unit ||= sale.quantity_unit || null;
+      productQuantities.set(name, current);
+
+      if (recentSales.length < 10) recentSales.push(sale);
     }
-    sales.push(...page);
     if (page.length < pageSize) break;
     offset += pageSize;
   }
 
-  return sales;
+  return {
+    sales: recentSales,
+    revenue,
+    orders,
+    average: orders ? revenue / orders : 0,
+    latestSale: safeDate(recentSales[0]?.created_at),
+    topProduct: [...productTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null,
+    perUser: [...userTotals.entries()].sort((a, b) => b[1] - a[1]).map(([name, total]) => ({ name, total })),
+    perProduct: [...productQuantities.entries()].sort((a, b) => b[1].quantity - a[1].quantity).map(([name, value]) => ({ name, ...value })),
+  };
 }
 
 export function useReports(): ReportsState {
@@ -88,34 +118,15 @@ export function useReports(): ReportsState {
       setLoading(true);
       setError(null);
       try {
-        const [sales, metrics] = await Promise.all([
+        const [salesSummary, metrics] = await Promise.all([
           loadReportSales(filter, tenantId),
           callWebApi<ProductMetric[]>(`/api/reports/product-metrics?filter=${filter}`),
         ]);
-        const filtered = (sales || []).filter((sale) => inFilter(sale, filter));
-        const revenue = filtered.reduce((sum, sale) => sum + saleRevenue(sale), 0);
-        const orders = filtered.filter((sale) => sale.type !== 'return').length;
-        const productTotals = new Map<string, number>();
-        const userTotals = new Map<string, number>();
-        const productQuantities = new Map<string, { quantity: number; unit: string | null }>();
-        for (const sale of filtered) {
-          const name = sale.product_name || 'Unknown';
-          const quantity = saleQuantity(sale);
-          productTotals.set(name, (productTotals.get(name) || 0) + quantity);
-          const user = sale.user_email || sale.user_id || 'unknown';
-          userTotals.set(user, (userTotals.get(user) || 0) + saleRevenue(sale));
-          const current = productQuantities.get(name) || { quantity: 0, unit: sale.quantity_unit || null };
-          current.quantity += quantity;
-          current.unit ||= sale.quantity_unit || null;
-          productQuantities.set(name, current);
-        }
         const nextData: ReportData = {
-          role, filter, sales: filtered, metrics: metrics || [], revenue, orders,
-          average: orders ? revenue / orders : 0,
-          latestSale: safeDate(filtered[0]?.created_at),
-          topProduct: [...productTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null,
-          perUser: [...userTotals.entries()].sort((a, b) => b[1] - a[1]).map(([name, total]) => ({ name, total })),
-          perProduct: [...productQuantities.entries()].sort((a, b) => b[1].quantity - a[1].quantity).map(([name, value]) => ({ name, ...value })),
+          role,
+          filter,
+          metrics: metrics || [],
+          ...salesSummary,
         };
         if (mounted) setData(nextData);
       } catch (loadError) {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import * as Crypto from 'expo-crypto';
@@ -59,7 +59,7 @@ function SaleFact({ label, value }: { label: string; value: string }) {
   return <View style={styles.saleFact}><Text style={[styles.factLabel, { color: theme.textSecondary }]}>{label}</Text><Text style={[styles.factValue, { color: theme.text }]} numberOfLines={2}>{value}</Text></View>;
 }
 
-function SaleForm({ products, role, businessType, busy, onCancel, onSubmit }: { products: Product[]; role: string | null; businessType: string; busy: boolean; onCancel: () => void; onSubmit: (input: SaleInput) => Promise<string | null> }) {
+function SaleForm({ products, productsLoading, productsError, productsHasMore, loadProducts, role, businessType, busy, onCancel, onSubmit }: { products: Product[]; productsLoading: boolean; productsError: string | null; productsHasMore: boolean; loadProducts: (search?: string, append?: boolean, force?: boolean) => Promise<void>; role: string | null; businessType: string; busy: boolean; onCancel: () => void; onSubmit: (input: SaleInput) => Promise<string | null> }) {
   const theme = useTheme();
   const [cart, setCart] = useState<CartLine[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -73,8 +73,20 @@ function SaleForm({ products, role, businessType, busy, onCancel, onSubmit }: { 
   const [invalidFields, setInvalidFields] = useState({ customer: false, phone: false });
   const [pendingAttempt, setPendingAttempt] = useState<{ signature: string; key: string } | null>(null);
 
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const timer = setTimeout(() => { void loadProducts(productSearch); }, 300);
+    return () => clearTimeout(timer);
+  }, [loadProducts, pickerOpen, productSearch]);
+
   const availableProducts = products.filter((product) => available(product, 'base', role, businessType) > 0 || available(product, 'converted', role, businessType) > 0);
-  const filteredProducts = availableProducts.filter((product) => product.name.toLowerCase().includes(productSearch.trim().toLowerCase()));
+  const normalizedProductSearch = productSearch.trim().toLowerCase();
+  const filteredProducts = availableProducts.filter((product) =>
+    !normalizedProductSearch ||
+    product.name.toLowerCase().includes(normalizedProductSearch) ||
+    product.category?.toLowerCase().includes(normalizedProductSearch) ||
+    String(product.price ?? '').includes(normalizedProductSearch)
+  );
   const unitPrice = (product: Product, unit: 'base' | 'converted') => {
     const price = Number(product.price || 0);
     const allocated = role === 'sales' && businessType === 'warehouse';
@@ -209,7 +221,7 @@ function SaleForm({ products, role, businessType, busy, onCancel, onSubmit }: { 
               })}
             </View>
           )}
-          <Button label="Add product" icon={<SymbolView name={{ ios: 'plus', android: 'add', web: 'add' }} tintColor={theme.primaryText} size={18} />} fullWidth disabled={busy || availableProducts.length === 0} onPress={() => { setPickerOpen((current) => !current); setProductSearch(''); setError(null); }} />
+          <Button label="Add product" icon={<SymbolView name={{ ios: 'plus', android: 'add', web: 'add' }} tintColor={theme.primaryText} size={18} />} fullWidth disabled={busy} onPress={() => { setPickerOpen((current) => !current); setProductSearch(''); setError(null); }} />
           {pickerOpen && (
             <View style={styles.inlinePicker}>
               <View style={styles.formHeader}>
@@ -217,7 +229,8 @@ function SaleForm({ products, role, businessType, busy, onCancel, onSubmit }: { 
                 <Button label="Close" size="sm" variant="ghost" disabled={busy} onPress={() => setPickerOpen(false)} />
               </View>
               <Input label="Search products" value={productSearch} onChangeText={setProductSearch} placeholder="Product name" returnKeyType="search" editable={!busy} />
-              {filteredProducts.length === 0 ? <EmptyState title="No matching products" description="Try another product name." /> : (
+              {productsError ? <View style={styles.stateContent}><FeedbackMessage message={productsError} variant="error" /><Button label="Retry products" variant="secondary" disabled={busy} onPress={() => { void loadProducts(productSearch, products.length > 0 && productsHasMore, true); }} /></View> : null}
+              {productsLoading && products.length === 0 ? <LoadingState label="Loading products..." /> : filteredProducts.length === 0 ? <EmptyState title="No matching products" description="Try another product name." /> : (
                 <View style={styles.productResults}>
                   {filteredProducts.map((product) => {
                     const productUnit = available(product, 'base', role, businessType) > 0 ? 'base' : 'converted';
@@ -234,6 +247,7 @@ function SaleForm({ products, role, businessType, busy, onCancel, onSubmit }: { 
                   })}
                 </View>
               )}
+              {productsHasMore && !productsError ? <Button label="Load more products" variant="secondary" loading={productsLoading} disabled={busy || productsLoading} onPress={() => { void loadProducts(productSearch, true); }} /> : null}
             </View>
           )}
         </View>
@@ -268,7 +282,11 @@ export default function SalesScreen() {
   const [formSession, setFormSession] = useState(0);
   const [busy, setBusy] = useState(false);
   const canCreate = state.role === 'owner' || state.role === 'sales';
-  const openSale = () => { setFormSession((current) => current + 1); setFormOpen(true); };
+  const openSale = () => {
+    setFormSession((current) => current + 1);
+    setFormOpen(true);
+    void state.loadProducts('', false, true);
+  };
   const submit = async (input: SaleInput): Promise<string | null> => {
     setBusy(true);
     const error = await state.createSale(input);
@@ -338,7 +356,7 @@ export default function SalesScreen() {
 
       <Modal visible={formOpen} animationType="slide" onRequestClose={() => !busy && setFormOpen(false)}>
         <View style={[styles.saleModal, { backgroundColor: theme.background }]}>
-          <SaleForm key={formSession} products={state.products} role={state.role} businessType={state.businessType} busy={busy} onCancel={() => !busy && setFormOpen(false)} onSubmit={submit} />
+          <SaleForm key={formSession} products={state.products} productsLoading={state.productsLoading} productsError={state.productsError} productsHasMore={state.productsHasMore} loadProducts={state.loadProducts} role={state.role} businessType={state.businessType} busy={busy} onCancel={() => !busy && setFormOpen(false)} onSubmit={submit} />
         </View>
       </Modal>
     </AppShell>

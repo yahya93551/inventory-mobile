@@ -66,7 +66,7 @@ type DashboardState = {
 };
 
 const fallbackVisibleFields = new Set(['name', 'category', 'cost_price', 'price', 'stock']);
-const dashboardProductPageSize = 500;
+const dashboardProductPageSize = 1000;
 
 async function loadProductSummary(): Promise<ProductSummary> {
   let cursor: string | null = null;

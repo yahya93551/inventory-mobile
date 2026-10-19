@@ -92,7 +92,7 @@ export function useInventory(): InventoryState {
       setPage(0);
     }, 300);
     return () => clearTimeout(timer);
-  }, [authLoading, roleLoading, user, search, stockFilter]);
+  }, [authLoading, roleLoading, user, search]);
 
   useEffect(() => {
     let mounted = true;
@@ -107,27 +107,27 @@ export function useInventory(): InventoryState {
       try {
         let productQuery = supabase
           .from('products')
-          .select('*')
+          .select('id,name,category,cost_price,price,stock,image_url,base_unit,converted_unit,conversion_rate,stock_remainder')
           .order('created_at', { ascending: false })
           .range(page * pageSize, page * pageSize + pageSize - 1);
         productQuery = applySearch(productQuery, debouncedSearch);
 
         const [productsResult, categoriesResult, fieldsResult] = await Promise.all([
           productQuery,
-          supabase.from('categories').select('name').order('name', { ascending: true }),
-          supabase.from('custom_fields').select('field_name,is_visible,is_system,field_order').eq('is_system', true).order('field_order', { ascending: true }),
+          page === 0 ? supabase.from('categories').select('name').order('name', { ascending: true }) : Promise.resolve(null),
+          page === 0 ? supabase.from('custom_fields').select('field_name,is_visible,is_system,field_order').eq('is_system', true).order('field_order', { ascending: true }) : Promise.resolve(null),
         ]);
 
         if (productsResult.error) throw new Error(productsResult.error.message);
-        if (categoriesResult.error) throw new Error(categoriesResult.error.message);
-        if (fieldsResult.error) throw new Error(fieldsResult.error.message);
+        if (categoriesResult?.error) throw new Error(categoriesResult.error.message);
+        if (fieldsResult?.error) throw new Error(fieldsResult.error.message);
 
         const nextProducts = (productsResult.data || []) as Product[];
         if (!mounted) return;
         setProducts((current) => isFirstPage ? nextProducts : [...current, ...nextProducts]);
         setHasMore(nextProducts.length === pageSize);
-        setCategories((categoriesResult.data || []).map((item) => item.name).filter(Boolean));
-        setVisibleFields(fieldsResult.data?.length ? new Set(fieldsResult.data.filter((field) => field.is_visible).map((field) => field.field_name)) : fallbackVisibleFields);
+        if (categoriesResult) setCategories((categoriesResult.data || []).map((item) => item.name).filter(Boolean));
+        if (fieldsResult) setVisibleFields(fieldsResult.data?.length ? new Set(fieldsResult.data.filter((field) => field.is_visible).map((field) => field.field_name)) : fallbackVisibleFields);
       } catch (loadError) {
         if (mounted) setError(loadError instanceof Error ? loadError.message : 'Unable to load inventory.');
       } finally {

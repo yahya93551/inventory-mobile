@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth, useTenantRole, type TenantRole } from '@/auth';
 import { supabase } from '@/lib/supabase';
@@ -61,6 +61,10 @@ export type SalesState = {
   businessType: string;
   sales: Sale[];
   products: Product[];
+  productsLoading: boolean;
+  productsError: string | null;
+  productsHasMore: boolean;
+  loadProducts: (search?: string, append?: boolean, force?: boolean) => Promise<void>;
   loading: boolean;
   error: string | null;
   search: string;
@@ -78,34 +82,72 @@ function applySearch(query: any, search: string) {
   return query.or(`product_name.ilike.%${escaped}%,order_id.ilike.%${escaped}%,customer_name.ilike.%${escaped}%,customer_phone.ilike.%${escaped}%`);
 }
 
-async function loadSaleProducts(): Promise<Product[]> {
-  const pageSize = 100;
-  const firstPage = await callWebApi<{ products: Product[]; count: number }>(`/api/products?page=1&per_page=${pageSize}`);
-  const pageCount = Math.ceil(Number(firstPage.count || 0) / pageSize);
-  if (pageCount <= 1) return firstPage.products || [];
-
-  const remainingPages = await Promise.all(
-    Array.from({ length: pageCount - 1 }, (_, index) =>
-      callWebApi<{ products: Product[]; count: number }>(`/api/products?page=${index + 2}&per_page=${pageSize}`)
-    )
-  );
-  return [firstPage, ...remainingPages].flatMap((page) => page.products || []);
-}
-
 export function useSales(): SalesState {
   const { user, loading: authLoading } = useAuth();
   const { role, loading: roleLoading } = useTenantRole();
   const [sales, setSales] = useState<Sale[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState<string | null>(null);
+  const [productsHasMore, setProductsHasMore] = useState(false);
   const [businessType, setBusinessType] = useState('custom');
   const [search, setSearchState] = useState('');
   const [date, setDate] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const productQuery = useRef('');
+  const productPage = useRef(0);
+  const productRequest = useRef(0);
+  const productLoading = useRef(false);
 
   const setSearch = useCallback((value: string) => setSearchState(value), []);
   const refresh = useCallback(() => setAttempt((value) => value + 1), []);
+  const loadProducts = useCallback(async (searchValue = '', append = false, force = false) => {
+    const query = searchValue.trim();
+    if (append && (productLoading.current || query !== productQuery.current || !productsHasMore)) return;
+    if (!append && !force && query === productQuery.current && (productPage.current > 0 || productLoading.current)) return;
+
+    const pageSize = 100;
+    const page = append ? productPage.current + 1 : 1;
+    if (!append) {
+      productQuery.current = query;
+      productPage.current = 0;
+      setProducts([]);
+      setProductsHasMore(false);
+    }
+
+    const requestId = ++productRequest.current;
+    productLoading.current = true;
+    setProductsLoading(true);
+    setProductsError(null);
+    try {
+      const params = new URLSearchParams({ page: String(page), per_page: String(pageSize) });
+      if (query) params.set('q', query);
+      const result = await callWebApi<{ products: Product[]; count: number }>(`/api/products?${params.toString()}`);
+      if (requestId !== productRequest.current) return;
+      const nextProducts = result.products || [];
+      if (append) {
+        setProducts((current) => {
+          const existingIds = new Set(current.map((product) => product.id));
+          return [...current, ...nextProducts.filter((product) => !existingIds.has(product.id))];
+        });
+      } else {
+        setProducts(nextProducts);
+      }
+      productPage.current = page;
+      setProductsHasMore(page * pageSize < Number(result.count || 0));
+    } catch (loadError) {
+      if (requestId === productRequest.current) {
+        setProductsError(loadError instanceof Error ? loadError.message : 'Unable to load products.');
+      }
+    } finally {
+      if (requestId === productRequest.current) {
+        productLoading.current = false;
+        setProductsLoading(false);
+      }
+    }
+  }, [productsHasMore]);
 
   useEffect(() => {
     let mounted = true;
@@ -122,9 +164,8 @@ export function useSales(): SalesState {
           salesQuery = salesQuery.gte('created_at', `${date}T00:00:00.000Z`).lt('created_at', `${date}T23:59:59.999Z`);
         }
 
-        const [salesResult, saleProducts, settingsResult] = await Promise.all([
+        const [salesResult, settingsResult] = await Promise.all([
           salesQuery,
-          loadSaleProducts(),
           supabase.from('business_settings').select('business_type').maybeSingle(),
         ]);
         if (salesResult.error) throw new Error(salesResult.error.message);
@@ -132,7 +173,6 @@ export function useSales(): SalesState {
         if (mounted) {
           setSales((salesResult.data || []) as Sale[]);
           setBusinessType(settingsResult.data?.business_type || 'custom');
-          setProducts(saleProducts);
         }
       } catch (loadError) {
         if (mounted) setError(loadError instanceof Error ? loadError.message : 'Unable to load sales.');
@@ -154,7 +194,24 @@ export function useSales(): SalesState {
     }
   }, [refresh]);
 
-  return { role, businessType, sales, products, loading: loading || authLoading || roleLoading, error, search, setSearch, date, setDate, refresh, createSale };
+  return {
+    role,
+    businessType,
+    sales,
+    products,
+    productsLoading,
+    productsError,
+    productsHasMore,
+    loadProducts,
+    loading: loading || authLoading || roleLoading,
+    error,
+    search,
+    setSearch,
+    date,
+    setDate,
+    refresh,
+    createSale,
+  };
 }
 
 export type { Product, Sale, SaleInput };
