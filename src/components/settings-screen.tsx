@@ -11,7 +11,7 @@ import { callWebApi } from '@/lib/web-api';
 
 type BusinessSettings = { business_type: string; description?: string | null; business_name?: string | null; business_address?: string | null; business_contact_name?: string | null; business_contact_phone?: string | null; business_contact_email?: string | null; business_website?: string | null };
 type FormState = Omit<BusinessSettings, 'business_type'> & { business_type: string };
-const businessTypes = ['pharmacy', 'ngo', 'warehouse', 'retail_shop', 'custom'];
+const businessTypes = ['warehouse', 'retail_shop', 'custom'];
 const emptyForm: FormState = { business_type: 'custom', description: '', business_name: '', business_address: '', business_contact_name: '', business_contact_phone: '', business_contact_email: '', business_website: '' };
 
 export function SettingsScreen({ onBack }: { onBack?: () => void } = {}) {
