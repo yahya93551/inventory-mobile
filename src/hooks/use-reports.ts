@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth, useTenantRole, type TenantRole } from '@/auth';
 import { callWebApi } from '@/lib/web-api';
+import { supabase } from '@/lib/supabase';
 
 type ReportFilter = '7d' | '30d' | 'all';
 type Sale = { id: string; product_name?: string | null; quantity?: number | null; quantity_unit?: string | null; unit?: string | null; total?: number | null; type?: 'sale' | 'return' | null; order_id?: string | null; customer_name?: string | null; user_email?: string | null; user_id?: string | null; created_at?: string | null; };
@@ -34,7 +35,7 @@ function saleQuantity(sale: Sale) {
   return sale.type === 'return' ? -Math.abs(quantity) : quantity;
 }
 
-async function loadReportSales(filter: ReportFilter): Promise<Sale[]> {
+async function loadReportSales(filter: ReportFilter, tenantId: string): Promise<Sale[]> {
   const pageSize = 100;
   const since = filter === 'all'
     ? null
@@ -44,10 +45,18 @@ async function loadReportSales(filter: ReportFilter): Promise<Sale[]> {
   let offset = 0;
 
   while (true) {
-    const sinceParam = since ? `&since=${encodeURIComponent(since)}` : '';
-    const page = await callWebApi<Sale[]>(`/api/sales?limit=${pageSize}&offset=${offset}${sinceParam}`);
+    let query = supabase
+      .from('sales')
+      .select('id, product_name, quantity, quantity_unit, unit, total, type, order_id, customer_name, user_id, created_at')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + pageSize - 1);
+    if (since) query = query.gte('created_at', since);
+
+    const { data: page, error } = await query;
+    if (error) throw new Error(`Unable to load report sales: ${error.message}`);
     if (!Array.isArray(page)) throw new Error('The sales service returned an invalid report response.');
-    if (page.length > pageSize) throw new Error('The sales service returned an invalid report page.');
     for (const sale of page) {
       if (!sale || typeof sale.id !== 'string' || seenIds.has(sale.id)) {
         throw new Error('Sales pagination returned duplicate or invalid records. Refresh the report or contact support.');
@@ -55,14 +64,16 @@ async function loadReportSales(filter: ReportFilter): Promise<Sale[]> {
       seenIds.add(sale.id);
     }
     sales.push(...page);
-    if (page.length < pageSize) return sales;
+    if (page.length < pageSize) break;
     offset += pageSize;
   }
+
+  return sales;
 }
 
 export function useReports(): ReportsState {
   const { user, loading: authLoading } = useAuth();
-  const { role, loading: roleLoading } = useTenantRole();
+  const { role, tenantId, loading: roleLoading } = useTenantRole();
   const [filter, setFilter] = useState<ReportFilter>('all');
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,13 +83,13 @@ export function useReports(): ReportsState {
 
   useEffect(() => {
     let mounted = true;
-    if (authLoading || roleLoading || !user || role === 'sales') return () => { mounted = false; };
+    if (authLoading || roleLoading || !user || !tenantId || role === 'sales') return () => { mounted = false; };
     const load = async () => {
       setLoading(true);
       setError(null);
       try {
         const [sales, metrics] = await Promise.all([
-          loadReportSales(filter),
+          loadReportSales(filter, tenantId),
           callWebApi<ProductMetric[]>(`/api/reports/product-metrics?filter=${filter}`),
         ]);
         const filtered = (sales || []).filter((sale) => inFilter(sale, filter));
@@ -115,7 +126,7 @@ export function useReports(): ReportsState {
     };
     void load();
     return () => { mounted = false; };
-  }, [attempt, authLoading, filter, role, roleLoading, user]);
+  }, [attempt, authLoading, filter, role, roleLoading, tenantId, user]);
 
   return { data, filter, setFilter, loading: loading || authLoading || roleLoading, error, refresh };
 }
