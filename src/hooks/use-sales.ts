@@ -81,7 +81,7 @@ function applySearch(query: any, search: string) {
 async function loadSaleProducts(): Promise<Product[]> {
   const pageSize = 100;
   const firstPage = await callWebApi<{ products: Product[]; count: number }>(`/api/products?page=1&per_page=${pageSize}`);
-  const pageCount = Math.min(Math.ceil(Number(firstPage.count || 0) / pageSize), 10);
+  const pageCount = Math.ceil(Number(firstPage.count || 0) / pageSize);
   if (pageCount <= 1) return firstPage.products || [];
 
   const remainingPages = await Promise.all(

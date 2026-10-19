@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import * as Crypto from 'expo-crypto';
 
 import { AppShell } from '@/components/app-shell';
 import { Badge, Button, Card, EmptyState, FeedbackMessage, Input, KeyboardAwareScrollView, LoadingState, SectionHeader } from '@/components/ui';
@@ -154,7 +155,7 @@ function SaleForm({ products, role, businessType, busy, onCancel, onSubmit }: { 
     const signature = JSON.stringify(saleInput);
     const idempotency_key = pendingAttempt?.signature === signature
       ? pendingAttempt.key
-      : crypto.randomUUID();
+      : Crypto.randomUUID();
     setPendingAttempt({ signature, key: idempotency_key });
     const submitError = await onSubmit({ ...saleInput, idempotency_key });
     if (submitError) return setError(submitError);
