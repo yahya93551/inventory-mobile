@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as Linking from 'expo-linking';
-import * as SplashScreen from 'expo-splash-screen';
 import type { Session, User } from '@supabase/supabase-js';
 
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -158,14 +157,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const restoreSession = async () => {
       if (!isSupabaseConfigured) {
         if (mounted) setLoading(false);
-        await SplashScreen.hideAsync();
         return;
       }
 
       const { data, error } = await supabase.auth.getSession();
       if (mounted && !error) await checkSessionAssurance(data.session);
       if (mounted) setLoading(false);
-      await SplashScreen.hideAsync();
     };
 
     void restoreSession();
