@@ -1,7 +1,7 @@
 {
   "name": "inventory-mobile",
   "main": "expo-router/entry",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "dependencies": {
     "@expo/ui": "~57.0.25",
     "@supabase/supabase-js": "^2.117.0",
