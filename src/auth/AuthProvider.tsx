@@ -155,14 +155,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let mounted = true;
 
     const restoreSession = async () => {
-      if (!isSupabaseConfigured) {
-        if (mounted) setLoading(false);
-        return;
-      }
+      try {
+        if (!isSupabaseConfigured) {
+          if (mounted) {
+            setSession(null);
+            setMfaChallenge(null);
+            setLoading(false);
+          }
+          return;
+        }
 
-      const { data, error } = await supabase.auth.getSession();
-      if (mounted && !error) await checkSessionAssurance(data.session);
-      if (mounted) setLoading(false);
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          if (mounted) {
+            setSession(null);
+            setMfaChallenge(null);
+          }
+          return;
+        }
+
+        if (mounted) await checkSessionAssurance(data.session);
+      } catch {
+        if (mounted) {
+          setSession(null);
+          setMfaChallenge(null);
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
     };
 
     void restoreSession();

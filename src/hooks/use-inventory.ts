@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { File as ExpoFile } from 'expo-file-system';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
 import { useAuth, useTenantRole, type TenantRole } from '@/auth';
 import { supabase } from '@/lib/supabase';
@@ -22,6 +24,7 @@ type Product = {
 type ProductInput = {
   name: string;
   category: string;
+  image_url?: string;
   cost_price?: number;
   price?: number;
   stock?: number;
@@ -32,6 +35,7 @@ type ProductInput = {
   custom_data?: Record<string, unknown>;
 };
 
+type ProductImage = { uri: string; width: number; height: number };
 type StockFilter = 'all' | 'in' | 'low' | 'critical' | 'out';
 
 export type InventoryState = {
@@ -49,7 +53,7 @@ export type InventoryState = {
   setStockFilter: (value: StockFilter) => void;
   refresh: () => void;
   loadMore: () => void;
-  addProduct: (input: ProductInput) => Promise<{ error: string | null; product: Product | null }>;
+  addProduct: (input: ProductInput, image?: Pick<ProductImage, 'uri' | 'width' | 'height'>) => Promise<{ error: string | null; product: Product | null }>;
   updateProduct: (id: string, input: Partial<ProductInput>) => Promise<string | null>;
   deleteProduct: (id: string) => Promise<string | null>;
 };
@@ -146,7 +150,7 @@ export function useInventory(): InventoryState {
     if (!loading && !loadingMore && hasMore) setPage((value) => value + 1);
   }, [hasMore, loading, loadingMore]);
 
-  const addProduct = useCallback(async (input: ProductInput) => {
+  const addProduct = useCallback(async (input: ProductInput, image?: ProductImage) => {
     if (!user?.id || !tenantId) return { error: 'Your tenant membership could not be verified.', product: null };
     const { stock_remainder, ...productFields } = input;
     const payload = {
@@ -158,7 +162,29 @@ export function useInventory(): InventoryState {
       conversion_rate: input.conversion_rate ?? null,
       ...(typeof stock_remainder === 'number' ? { stock_remainder } : {}),
     };
+    let uploadedImagePath: string | null = null;
     try {
+      if (image) {
+        const manipulator = ImageManipulator.manipulate(image.uri);
+        if (Math.max(image.width, image.height) > 1024) {
+          if (image.width >= image.height) manipulator.resize({ width: 1024 });
+          else manipulator.resize({ height: 1024 });
+        }
+        const manipulatedImage = await manipulator.renderAsync();
+        const compressedImage = await manipulatedImage.saveAsync({ compress: 0.8, format: SaveFormat.JPEG });
+        const fileContents = await new ExpoFile(compressedImage.uri).arrayBuffer();
+        const imagePath = `products/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+        const { error: uploadError } = await supabase.storage
+          .from('product-images')
+          .upload(imagePath, fileContents, { contentType: 'image/jpeg', upsert: false });
+        if (uploadError) throw new Error(`Product image upload failed: ${uploadError.message}`);
+        uploadedImagePath = imagePath;
+
+        const { data: imageData } = supabase.storage.from('product-images').getPublicUrl(imagePath);
+        if (!imageData.publicUrl) throw new Error('Product image upload succeeded, but its URL could not be created.');
+        Object.assign(payload, { image_url: imageData.publicUrl });
+      }
+
       const product = await callWebApi<Product>('/api/products', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -166,8 +192,18 @@ export function useInventory(): InventoryState {
       refresh();
       return { error: null, product };
     } catch (createError) {
+      const message = createError instanceof Error ? createError.message : 'Unable to add product.';
+      if (uploadedImagePath) {
+        const { error: cleanupError } = await supabase.storage.from('product-images').remove([uploadedImagePath]);
+        if (cleanupError) {
+          return {
+            error: `${message} The uploaded image could not be cleaned up: ${cleanupError.message}`,
+            product: null,
+          };
+        }
+      }
       return {
-        error: createError instanceof Error ? createError.message : 'Unable to add product.',
+        error: message,
         product: null,
       };
     }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { SymbolView } from 'expo-symbols';
 
 import { AppShell } from '@/components/app-shell';
@@ -74,9 +75,10 @@ function ProductCard({ product, showCost, onPress }: { product: Product; showCos
   );
 }
 
-function ProductForm({ product, categories, showCost, showPrice, showStock, busy, submitError, onCancel, onSubmit }: { product: Product | null; categories: string[]; showCost: boolean; showPrice: boolean; showStock: boolean; busy: boolean; submitError: string | null; onCancel: () => void; onSubmit: (value: FormState) => void }) {
+function ProductForm({ product, categories, showCost, showPrice, showStock, busy, submitError, onCancel, onSubmit }: { product: Product | null; categories: string[]; showCost: boolean; showPrice: boolean; showStock: boolean; busy: boolean; submitError: string | null; onCancel: () => void; onSubmit: (value: FormState, image: Pick<ImagePicker.ImagePickerAsset, 'uri' | 'width' | 'height'> | null) => void }) {
   const theme = useTheme();
   const [value, setValue] = useState<FormState>(() => product ? { name: product.name, category: product.category || '', cost: String(product.cost_price ?? ''), price: String(product.price ?? ''), stock: String(product.stock ?? ''), base: product.base_unit || '', converted: product.converted_unit || '', rate: String(product.conversion_rate ?? '') } : emptyForm);
+  const [image, setImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [invalidFields, setInvalidFields] = useState<Partial<Record<keyof FormState, boolean>>>({});
   const update = (key: keyof FormState, next: string) => {
@@ -119,7 +121,20 @@ function ProductForm({ product, categories, showCost, showPrice, showStock, busy
       return setError('Converted unit is required when a conversion rate is provided.');
     }
     setError(null);
-    onSubmit(value);
+    onSubmit(value, image ? { uri: image.uri, width: image.width, height: image.height } : null);
+  };
+  const pickImage = async () => {
+    setError(null);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 1,
+      });
+      if (!result.canceled) setImage(result.assets[0] ?? null);
+    } catch (pickError) {
+      setError(pickError instanceof Error ? pickError.message : 'Unable to open your photo library.');
+    }
   };
   return (
     <View style={styles.form}>
@@ -178,6 +193,19 @@ function ProductForm({ product, categories, showCost, showPrice, showStock, busy
         <Input label="Conversion rate" value={value.rate} onChangeText={(next) => update('rate', next.replace(/[^0-9.]/g, ''))} keyboardType="decimal-pad" placeholder="e.g. 20" error={invalidFields.rate ? 'Enter a valid positive conversion rate.' : undefined} editable={!busy} />
       </View>
 
+      {!product && (
+        <View style={styles.formGroup}>
+          <SectionHeader title="Product image" detail="Optional. Add a photo to recognize this product." />
+          {image ? (
+            <Image source={{ uri: image.uri }} style={styles.imagePreview} accessibilityLabel="Selected product image preview" />
+          ) : null}
+          <View style={styles.imageActions}>
+            <Button label={image ? 'Change image' : 'Choose image'} variant="secondary" disabled={busy} onPress={pickImage} />
+            {image ? <Button label="Remove image" variant="ghost" disabled={busy} onPress={() => setImage(null)} /> : null}
+          </View>
+        </View>
+      )}
+
       <Button label={product ? 'Save changes' : 'Add product'} loading={busy} fullWidth onPress={submit} />
     </View>
   );
@@ -199,11 +227,11 @@ export default function InventoryScreen() {
   const showPrice = inventory.visibleFields.has('price');
   const showStock = inventory.visibleFields.has('stock');
   const openAdd = () => { setEditing(null); setMutationError(null); setFormOpen(true); };
-  const submit = async (value: FormState) => {
+  const submit = async (value: FormState, image: Pick<ImagePicker.ImagePickerAsset, 'uri' | 'width' | 'height'> | null) => {
     const input: ProductInput = { name: value.name.trim(), category: value.category.trim(), ...(showCost ? { cost_price: Number(value.cost || 0) } : {}), ...(showPrice ? { price: Number(value.price || 0) } : {}), ...(showStock ? { stock: Number(value.stock || 0) } : {}), base_unit: value.base.trim() || null, converted_unit: value.converted.trim() || null, conversion_rate: value.rate ? Number(value.rate) : null };
     setMutationError(null);
     setBusy(true);
-    const error = editing ? await inventory.updateProduct(editing.id, input) : (await inventory.addProduct(input)).error;
+    const error = editing ? await inventory.updateProduct(editing.id, input) : (await inventory.addProduct(input, image ?? undefined)).error;
     setBusy(false);
     setMutationError(error);
     if (!error) { setFormOpen(false); setEditing(null); setSelected(null); }
@@ -389,6 +417,8 @@ const styles = StyleSheet.create({
   productCard: { gap: Spacing.lg },
   cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.two },
   image: { width: 58, height: 58, borderRadius: Radius.md },
+  imagePreview: { width: 112, height: 112, borderRadius: Radius.md, backgroundColor: '#e5e7eb' },
+  imageActions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   imageFallback: { alignItems: 'center', justifyContent: 'center' },
   imageFallbackText: { ...Typography.caption, textAlign: 'center' },
   copy: { flex: 1, gap: Spacing.one },
