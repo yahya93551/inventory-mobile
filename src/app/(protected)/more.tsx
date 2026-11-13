@@ -64,7 +64,7 @@ function MoreMenuRow({ item, last, onPress }: { item: MoreItem; last: boolean; o
 
 export default function MoreScreen() {
   const theme = useTheme();
-  const { role, loading: roleLoading } = useTenantRole();
+  const { role, loading: roleLoading, error: roleError, refresh: refreshRole } = useTenantRole();
   const { signOut } = useAuth();
   const [activeSection, setActiveSection] = useState<'categories' | 'debts' | 'employees' | 'settings' | 'subscription' | null>(null);
   const [logoutBusy, setLogoutBusy] = useState(false);
@@ -106,7 +106,16 @@ export default function MoreScreen() {
               <Badge label={role} variant="primary" />
             </View>
           ) : (
-            <EmptyState title="Workspace access unavailable" description="No active workspace role is available for this account." />
+            <EmptyState
+              title="Workspace access unavailable"
+              description={roleError || 'No active workspace role is available for this account.'}
+              action={
+                <View style={styles.accessActions}>
+                  <Button label="View subscription" variant="secondary" onPress={() => setActiveSection('subscription')} />
+                  <Button label="Retry workspace access" variant="ghost" onPress={refreshRole} />
+                </View>
+              }
+            />
           )}
         </Card>
 
@@ -138,6 +147,7 @@ export default function MoreScreen() {
 const styles = StyleSheet.create({
   content: { gap: Spacing.xl, paddingBottom: Spacing.xxl },
   accountCard: { gap: Spacing.md },
+  accessActions: { width: '100%', gap: Spacing.sm },
   roleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md, minHeight: ControlHeights.standard },
   roleLabel: { ...Typography.label },
   sections: { gap: Spacing.xl },

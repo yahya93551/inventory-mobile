@@ -1,4 +1,4 @@
-import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, createElement, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 
 import { useAuth } from './AuthProvider';
 import { callWebApi } from '@/lib/web-api';
@@ -10,15 +10,17 @@ type TenantRoleState = {
   tenantId: string | null;
   loading: boolean;
   error: string | null;
+  refresh: () => void;
 };
 
-type CachedTenantRoleState = TenantRoleState & { userId: string | null };
+type CachedTenantRoleState = Omit<TenantRoleState, 'refresh'> & { userId: string | null };
 
 const TenantRoleContext = createContext<TenantRoleState | null>(null);
 
 export function TenantRoleProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
   const [state, setState] = useState<CachedTenantRoleState>({ userId: null, role: null, tenantId: null, loading: true, error: null });
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -54,14 +56,16 @@ export function TenantRoleProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [authLoading, user?.id]);
+  }, [authLoading, reloadKey, user?.id]);
+
+  const refresh = useCallback(() => setReloadKey((value) => value + 1), []);
 
   const currentUserId = user?.id ?? null;
   const currentState = state.userId === currentUserId && !authLoading
     ? state
     : { role: null, tenantId: null, loading: authLoading || Boolean(currentUserId), error: null };
 
-  return createElement(TenantRoleContext.Provider, { value: currentState }, children);
+  return createElement(TenantRoleContext.Provider, { value: { ...currentState, refresh } }, children);
 }
 
 export function useTenantRole(): TenantRoleState {
