@@ -8,6 +8,7 @@
     "scheme": "inventorymobile",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.yahya93551.myinventory",
       "icon": "./assets/expo.icon"
     },
     "android": {
