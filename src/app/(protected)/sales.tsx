@@ -354,7 +354,7 @@ export default function SalesScreen() {
         </ScrollView>
       </Modal>
 
-      <Modal visible={formOpen} animationType="slide" onRequestClose={() => !busy && setFormOpen(false)}>
+      <Modal visible={formOpen} animationType="slide" onRequestClose={() => { if (!busy) setFormOpen(false); }}>
         <View style={[styles.saleModal, { backgroundColor: theme.background }]}>
           <SaleForm key={formSession} products={state.products} productsLoading={state.productsLoading} productsError={state.productsError} productsHasMore={state.productsHasMore} loadProducts={state.loadProducts} role={state.role} businessType={state.businessType} busy={busy} onCancel={() => !busy && setFormOpen(false)} onSubmit={submit} />
         </View>

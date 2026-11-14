@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { AppState, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, StyleSheet, Text, View } from 'react-native';
 
 import { AppShell } from '@/components/app-shell';
-import { Button, Card, EmptyState, FeedbackMessage, LoadingState, SectionHeader } from '@/components/ui';
-import { ControlHeights, Radius, Spacing, Typography } from '@/constants/theme';
+import { Button, Card, EmptyState, FeedbackMessage, Input, KeyboardAwareScrollView, LoadingState, SectionHeader } from '@/components/ui';
+import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { callWebApi } from '@/lib/web-api';
 
@@ -115,7 +115,7 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
         ? 'EVC Plus confirmed your payment. Your subscription is active.'
         : status === 'failed'
           ? providerState === 'insufficient_balance'
-            ? 'Not enough balance in your EVC Plus wallet. Add funds and try again.'
+            ? 'Haraaga xisaabtaadu kuguma filna'
             : providerState === 'user_rejected'
               ? 'You rejected the EVC Plus payment request. No subscription was activated.'
               : 'Your payment was rejected. Please try again. No subscription was activated.'
@@ -126,7 +126,9 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
         ? 'Awaiting confirmation from EVC Plus.'
         : status === 'succeeded'
           ? 'Payment confirmed; subscription activated.'
-          : `Payment status: ${status}; provider state: ${providerState ?? 'unknown'}; response code: ${result.responseCode ?? 'not returned'}.`);
+          : providerState === 'insufficient_balance'
+            ? null
+            : `Payment status: ${status}; provider state: ${providerState ?? 'unknown'}; response code: ${result.responseCode ?? 'not returned'}.`);
       setAccountNo('252');
       setConfirmUpgrade(false);
       if (status === 'succeeded') {
@@ -144,7 +146,11 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
 
   return (
     <AppShell title="Subscription" subtitle="Choose a plan and request activation.">
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        scrollToEndOnKeyboardShow
+      >
         {onBack && <Button label="Back to More" variant="ghost" onPress={onBack} />}
         {loading ? <Card><LoadingState label="Loading subscription status..." /></Card> : error && !subscription ? (
           <Card><EmptyState title="Subscription unavailable" description={error} action={<Button label="Try again" variant="secondary" onPress={() => setReloadKey((value) => value + 1)} />} /></Card>
@@ -186,32 +192,31 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
               </Card>
             </View>
             <View style={styles.section}>
-              <SectionHeader title="EVC Plus payment" detail="Enter the wallet number to start the checkout flow used by the web app." />
-              <View style={styles.accountRow}>
-                <Text style={[styles.label, { color: theme.textSecondary }]}>Wallet number</Text>
-                <Text style={[styles.accountPreview, { color: theme.text }]}>{accountNo}</Text>
-              </View>
-              <Button label="Clear number" variant="secondary" onPress={() => setAccountNo('252')} />
-              <Button label="Use this wallet" variant="primary" disabled={!requestReady || requesting} loading={requesting} onPress={() => void submitRequest()} />
-            </View>
-            <View style={styles.section}>
-              <SectionHeader title="Wallet number" detail="No + sign. The prefix 252 is added automatically." />
-              <Text style={[styles.helper, { color: theme.textSecondary }]}>Example: 252 and then your number, like 252123456789</Text>
-              <View style={styles.inputWrap}>
-                <Text style={[styles.prefix, { color: theme.textSecondary }]}>252</Text>
-                <Text style={[styles.input, { color: theme.text, borderColor: theme.border }]}>{accountNo.slice(3)}</Text>
-              </View>
-              <Button label="Add digits" variant="secondary" onPress={() => {
-                const next = normalizeAccountNo(`${accountNo}1`);
-                setAccountNo(next);
-              }} />
-              <Button label="Remove last digit" variant="ghost" onPress={() => {
-                setAccountNo((current) => normalizeAccountNo(current.slice(0, -1) || '252'));
-              }} />
+              <SectionHeader title="EVC Plus payment" detail="Enter your wallet number to start checkout. The 252 country code is included automatically; do not enter a + sign." />
+              <Input
+                label="EVC Plus wallet number"
+                value={accountNo}
+                onChangeText={(value) => setAccountNo(normalizeAccountNo(value))}
+                placeholder="252 followed by your number"
+                keyboardType="number-pad"
+                inputMode="numeric"
+                autoComplete="tel"
+                maxLength={20}
+                editable={!requesting}
+                helperText="You can type or paste your number."
+              />
+              <Button
+                label={confirmUpgrade ? 'Confirm checkout' : 'Use this wallet'}
+                variant="primary"
+                fullWidth
+                disabled={!requestReady || requesting}
+                loading={requesting}
+                onPress={() => void submitRequest()}
+              />
             </View>
           </>}
         </>}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </AppShell>
   );
 }
@@ -229,11 +234,4 @@ const styles = StyleSheet.create({
   durationRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   totalCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md },
   total: { ...Typography.sectionTitle },
-  accountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md },
-  label: { ...Typography.label },
-  accountPreview: { ...Typography.sectionTitle },
-  helper: { ...Typography.helper },
-  inputWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: Radius.md, paddingHorizontal: Spacing.md, minHeight: ControlHeights.standard },
-  prefix: { ...Typography.label, marginRight: Spacing.sm },
-  input: { ...Typography.label, flex: 1, minHeight: ControlHeights.standard, justifyContent: 'center' },
 });

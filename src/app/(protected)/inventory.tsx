@@ -335,7 +335,7 @@ export default function InventoryScreen() {
               )}
             </View>
           )}
-          ListFooterComponent={inventory.hasMore && !inventory.loading && !inventory.error ? <Button label="Load more products" variant="secondary" loading={inventory.loadingMore} onPress={inventory.loadMore} /> : null}
+          ListFooterComponent={inventory.hasMore && !inventory.loading && !inventory.error ? <Button label="Load more products" variant="secondary" loading={inventory.loadingMore} onPress={inventory.loadMore} /> : undefined}
           style={styles.productList}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
@@ -371,7 +371,7 @@ export default function InventoryScreen() {
         </View>
       </Modal>
 
-      <Modal visible={deleteTarget !== null} animationType="fade" transparent onRequestClose={() => !deleteBusy && setDeleteTarget(null)}>
+      <Modal visible={deleteTarget !== null} animationType="fade" transparent onRequestClose={() => { if (!deleteBusy) setDeleteTarget(null); }}>
         <View style={[styles.confirmBackdrop, { backgroundColor: `${theme.shadow}88` }]}>
           <View style={[styles.confirmDialog, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <SectionHeader title="Delete product?" detail={deleteTarget ? `Delete ${deleteTarget.name} from inventory? This action cannot be undone.` : undefined} />

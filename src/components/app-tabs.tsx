@@ -37,7 +37,7 @@ export default function AppTabs() {
     </Tabs>
   );
 }
-function TabButton({ label, icon, isFocused, ...props }: TabTriggerSlotProps & { label: string; icon: SymbolName }) {
+function TabButton({ label, icon, isFocused, ...props }: Omit<TabTriggerSlotProps, 'ref'> & { label: string; icon: SymbolName }) {
   const theme = useTheme();
   const tintColor = isFocused ? theme.primary : theme.textSecondary;
 
