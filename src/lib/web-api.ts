@@ -35,11 +35,22 @@ export async function callWebApi<T>(path: string, options: RequestInit = {}) {
     }
     throw new Error('Could not reach the MyInventory server. Check your connection or try again later.');
   }
-  const body = await response.json().catch(() => null) as { data?: T; error?: string } | null;
+  const body = await response.json().catch(() => null) as {
+    data?: T;
+    error?: unknown;
+    message?: unknown;
+  } | null;
   if (response.status === 401) {
     await clearExpiredSession();
     throw new Error(expiredSessionMessage);
   }
-  if (!response.ok) throw new Error(body?.error || 'The request could not be completed.');
+  if (!response.ok) {
+    const errorMessage = typeof body?.error === 'string'
+      ? body.error
+      : typeof body?.message === 'string'
+        ? body.message
+        : `The request could not be completed (HTTP ${response.status}).`;
+    throw new Error(errorMessage);
+  }
   return body?.data as T;
 }

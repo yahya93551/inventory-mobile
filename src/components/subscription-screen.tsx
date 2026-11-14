@@ -138,7 +138,6 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
       const userMessage = requestError instanceof Error ? requestError.message : 'Unable to submit subscription request.';
       setMessage(userMessage);
       setCheckoutResult('Checkout request failed.');
-      setError(userMessage);
     } finally {
       setRequesting(false);
     }
