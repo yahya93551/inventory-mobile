@@ -19,6 +19,15 @@ type Sale = {
   customer_address?: string | null;
   paid?: boolean | null;
   created_at?: string | null;
+  refund_reason?: string | null;
+};
+
+type BusinessSettings = {
+  business_type: string;
+  business_name?: string | null;
+  business_address?: string | null;
+  business_contact_phone?: string | null;
+  business_contact_email?: string | null;
 };
 
 type Product = {
@@ -56,9 +65,21 @@ type SaleInput = {
   paid?: boolean;
 };
 
+type ReturnInput = {
+  idempotency_key: string;
+  items: SaleItemInput[];
+  order_id?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  customer_address?: string;
+  type: 'return';
+  refund_reason?: string;
+};
+
 export type SalesState = {
   role: TenantRole | null;
   businessType: string;
+  businessSettings: BusinessSettings;
   sales: Sale[];
   products: Product[];
   productsLoading: boolean;
@@ -72,7 +93,9 @@ export type SalesState = {
   date: string;
   setDate: (value: string) => void;
   refresh: () => void;
+  loadSalesByReference: (reference: string) => Promise<Sale[]>;
   createSale: (input: SaleInput) => Promise<string | null>;
+  recordReturn: (input: ReturnInput) => Promise<string | null>;
 };
 
 function applySearch(query: any, search: string) {
@@ -91,6 +114,7 @@ export function useSales(): SalesState {
   const [productsError, setProductsError] = useState<string | null>(null);
   const [productsHasMore, setProductsHasMore] = useState(false);
   const [businessType, setBusinessType] = useState('custom');
+  const [businessSettings, setBusinessSettings] = useState<BusinessSettings>({ business_type: 'custom' });
   const [search, setSearchState] = useState('');
   const [date, setDate] = useState('');
   const [loading, setLoading] = useState(true);
@@ -157,7 +181,7 @@ export function useSales(): SalesState {
       setLoading(true);
       setError(null);
       try {
-        let salesQuery = supabase.from('sales').select('*').order('created_at', { ascending: false }).limit(100);
+        let salesQuery = supabase.from('sales').select('*').order('created_at', { ascending: false }).limit(200);
         if (role === 'sales') salesQuery = salesQuery.eq('user_id', user.id);
         salesQuery = applySearch(salesQuery, search);
         if (date) {
@@ -166,13 +190,22 @@ export function useSales(): SalesState {
 
         const [salesResult, settingsResult] = await Promise.all([
           salesQuery,
-          supabase.from('business_settings').select('business_type').maybeSingle(),
+          supabase.from('business_settings')
+            .select('business_type, business_name, business_address, business_contact_phone, business_contact_email')
+            .maybeSingle(),
         ]);
         if (salesResult.error) throw new Error(salesResult.error.message);
         if (settingsResult.error) throw new Error(settingsResult.error.message);
         if (mounted) {
           setSales((salesResult.data || []) as Sale[]);
           setBusinessType(settingsResult.data?.business_type || 'custom');
+          setBusinessSettings({
+            business_type: settingsResult.data?.business_type || 'custom',
+            business_name: settingsResult.data?.business_name,
+            business_address: settingsResult.data?.business_address,
+            business_contact_phone: settingsResult.data?.business_contact_phone,
+            business_contact_email: settingsResult.data?.business_contact_email,
+          });
         }
       } catch (loadError) {
         if (mounted) setError(loadError instanceof Error ? loadError.message : 'Unable to load sales.');
@@ -194,9 +227,25 @@ export function useSales(): SalesState {
     }
   }, [refresh]);
 
+  const loadSalesByReference = useCallback(async (reference: string) => {
+    const params = new URLSearchParams({ limit: '100', q: reference });
+    return callWebApi<Sale[]>(`/api/sales?${params.toString()}`);
+  }, []);
+
+  const recordReturn = useCallback(async (input: ReturnInput) => {
+    try {
+      await callWebApi('/api/sales', { method: 'POST', body: JSON.stringify(input) });
+      refresh();
+      return null;
+    } catch (returnError) {
+      return returnError instanceof Error ? returnError.message : 'Unable to process this return.';
+    }
+  }, [refresh]);
+
   return {
     role,
     businessType,
+    businessSettings,
     sales,
     products,
     productsLoading,
@@ -210,8 +259,10 @@ export function useSales(): SalesState {
     date,
     setDate,
     refresh,
+    loadSalesByReference,
     createSale,
+    recordReturn,
   };
 }
 
-export type { Product, Sale, SaleInput };
+export type { BusinessSettings, Product, ReturnInput, Sale, SaleInput };

@@ -1,11 +1,15 @@
 import { Redirect } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 import { AppShell } from '@/components/app-shell';
-import { Badge, Button, Card, EmptyState, LoadingState } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, FeedbackMessage, LoadingState } from '@/components/ui';
 import { Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useReports, type ProductMetric, type ReportFilter } from '@/hooks/use-reports';
+import { createReportsHtml } from '@/lib/reports-pdf';
 
 function money(value: number) {
   const amount = Math.abs(value);
@@ -33,9 +37,33 @@ function Stat({ label, value, tone = 'primary' }: { label: string; value: string
 export default function ReportsScreen() {
   const theme = useTheme();
   const state = useReports();
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   if (!state.loading && state.data?.role === 'sales') return <Redirect href="/inventory" />;
   const data = state.data;
   const filters: { value: ReportFilter; label: string }[] = [{ value: '7d', label: '7 days' }, { value: '30d', label: '30 days' }, { value: 'all', label: 'All time' }];
+  const exportReport = async () => {
+    if (!data || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const generatedAt = new Date().toLocaleString('en-US', { timeZone: 'Africa/Mogadishu' });
+      const html = createReportsHtml({ ...data, generatedAt });
+      if (Platform.OS === 'web') {
+        await Print.printAsync({ html });
+      } else {
+        if (!(await Sharing.isAvailableAsync())) {
+          throw new Error('Sharing is not available on this device.');
+        }
+        const { uri } = await Print.printToFileAsync({ html });
+        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Share inventory report', UTI: '.pdf' });
+      }
+    } catch (exportFailure) {
+      setExportError(exportFailure instanceof Error ? exportFailure.message : 'Unable to export the report.');
+    } finally {
+      setExporting(false);
+    }
+  };
   return (
     <AppShell title="Reports" subtitle="Sales movement and product performance.">
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -45,23 +73,27 @@ export default function ReportsScreen() {
           ))}
           <Button label="Refresh" size="sm" variant="ghost" onPress={state.refresh} />
         </View>
+        {data ? <Button label="Export report PDF" variant="secondary" loading={exporting} disabled={state.loading} onPress={() => void exportReport()} /> : null}
+        {exportError ? <FeedbackMessage message={exportError} variant="error" /> : null}
         {state.loading ? (
           <Card><LoadingState label="Loading reports..." /></Card>
         ) : state.error ? (
           <Card><EmptyState title="Reports unavailable" description={state.error} action={<Button label="Try again" variant="secondary" onPress={state.refresh} />} /></Card>
-        ) : !data || data.sales.length === 0 ? (
-          <Card><EmptyState title="No report data" description="There are no sales in the selected date range." /></Card>
+        ) : !data ? (
+          <Card><EmptyState title="No report data" description="There is no report data available." /></Card>
         ) : (
           <>
+            {data.sales.length === 0 ? <Card><EmptyState title="No sales in this period" description="Sales summaries are empty for this date range. Available inventory metrics are still shown below." /></Card> : null}
             <View style={styles.grid}>
               <Stat label="Total revenue" value={money(data.revenue)} tone={data.revenue < 0 ? 'warning' : 'success'} />
               <Stat label="Orders" value={String(data.orders)} />
               <Stat label="Average order" value={money(data.average)} tone="warning" />
               <Stat label="Top product" value={data.topProduct || 'No sales'} />
+              <Stat label="Latest sale" value={data.latestSale ? data.latestSale.toLocaleDateString('en-US', { timeZone: 'Africa/Mogadishu' }) : 'No sales'} />
             </View>
             <Card>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>Sales per user</Text>
-              {data.perUser.map((item) => (
+              {data.perUser.length === 0 ? <Text style={[styles.small, { color: theme.textSecondary }]}>No sales in this period.</Text> : data.perUser.map((item) => (
                 <View key={item.name} style={[styles.row, { borderBottomColor: theme.border }]}>
                   <Text style={[styles.rowName, { color: theme.text }]} numberOfLines={1}>{item.name}</Text>
                   <Text style={[styles.rowValue, { color: item.total < 0 ? theme.danger : theme.success }]}>{money(item.total)}</Text>
@@ -70,7 +102,7 @@ export default function ReportsScreen() {
             </Card>
             <Card>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>Sales per product</Text>
-              {data.perProduct.map((item) => (
+              {data.perProduct.length === 0 ? <Text style={[styles.small, { color: theme.textSecondary }]}>No product sales in this period.</Text> : data.perProduct.map((item) => (
                 <View key={item.name} style={[styles.row, { borderBottomColor: theme.border }]}>
                   <Text style={[styles.rowName, { color: theme.text }]} numberOfLines={1}>{item.name}</Text>
                   <Text style={[styles.rowValue, { color: theme.text }]}>{item.quantity} {item.unit || 'units'}</Text>
@@ -82,7 +114,7 @@ export default function ReportsScreen() {
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Product inventory metrics</Text>
                 <Badge label={`${data.metrics.length} products`} variant="neutral" />
               </View>
-              {data.metrics.slice(0, 20).map((metric) => (
+              {data.metrics.length === 0 ? <Text style={[styles.small, { color: theme.textSecondary }]}>No product inventory metrics.</Text> : data.metrics.slice(0, 20).map((metric) => (
                 <View key={metric.product_id} style={[styles.metricBlock, { borderBottomColor: theme.border }]}>
                   <Text style={[styles.rowName, { color: theme.text }]} numberOfLines={1}>{metric.product_name}</Text>
                   <View style={styles.metricGrid}>
@@ -97,7 +129,7 @@ export default function ReportsScreen() {
             </Card>
             <Card>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent sales</Text>
-              {data.sales.slice(0, 10).map((sale) => (
+              {data.sales.length === 0 ? <Text style={[styles.small, { color: theme.textSecondary }]}>No sales recorded in this period.</Text> : data.sales.slice(0, 10).map((sale) => (
                 <View key={sale.id} style={[styles.row, { borderBottomColor: theme.border }]}>
                   <View style={styles.rowName}>
                     <Text style={{ color: theme.text }} numberOfLines={1}>{sale.product_name || 'Unknown'}</Text>

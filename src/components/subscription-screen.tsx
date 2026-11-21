@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, StyleSheet, Text, View } from 'react-native';
+import * as Linking from 'expo-linking';
 
 import { AppShell } from '@/components/app-shell';
 import { Button, Card, EmptyState, FeedbackMessage, Input, KeyboardAwareScrollView, LoadingState, SectionHeader } from '@/components/ui';
@@ -51,6 +52,7 @@ const plans: Record<SubscriptionPlan, PlanDetails> = {
 };
 const durations = [1, 3, 6, 12];
 const discounts: Record<number, number> = { 1: 0, 3: 10, 6: 15, 12: 20 };
+const pendingSupportDelayMs = 5 * 60 * 1000;
 
 function durationTotal(plan: SubscriptionPlan, months: number) {
   return Number((plans[plan].fee * months * (1 - discounts[months] / 100)).toFixed(2));
@@ -82,9 +84,12 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
   const [checkoutResult, setCheckoutResult] = useState<string | null>(null);
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [pendingPaymentStart, setPendingPaymentStart] = useState<{ referenceId: string; timestamp: number } | null>(null);
+  const [paymentSupportReference, setPaymentSupportReference] = useState<string | null>(null);
   const mounted = useRef(false);
   const paymentPollInFlight = useRef(false);
   const refreshedSuccessReference = useRef<string | null>(null);
+  const pendingPaymentStartRef = useRef<{ referenceId: string; timestamp: number } | null>(null);
 
   const refreshPaymentStatus = useCallback(async () => {
     if (paymentPollInFlight.current) return;
@@ -95,6 +100,23 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
       const nextPayment = result?.payment ?? null;
       setPayment(nextPayment);
       setPaymentError(null);
+      if (nextPayment?.status === 'pending') {
+        const createdAt = Date.parse(nextPayment.createdAt ?? '');
+        const previousStart = pendingPaymentStartRef.current;
+        const timestamp = Number.isFinite(createdAt) && createdAt > 0
+          ? createdAt
+          : previousStart?.referenceId === nextPayment.referenceId
+            ? previousStart.timestamp
+            : Date.now();
+        const nextStart = { referenceId: nextPayment.referenceId, timestamp };
+        pendingPaymentStartRef.current = nextStart;
+        setPendingPaymentStart(nextStart);
+        setPaymentSupportReference(Date.now() - timestamp >= pendingSupportDelayMs ? nextPayment.referenceId : null);
+      } else {
+        pendingPaymentStartRef.current = null;
+        setPendingPaymentStart(null);
+        setPaymentSupportReference(null);
+      }
       if (
         nextPayment?.status === 'succeeded'
         && refreshedSuccessReference.current !== nextPayment.referenceId
@@ -170,6 +192,29 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
     }, 5000);
     return () => clearInterval(paymentRefreshInterval);
   }, [payment?.referenceId, payment?.status, refreshPaymentStatus]);
+
+  useEffect(() => {
+    if (payment?.status !== 'pending' || !pendingPaymentStart || pendingPaymentStart.referenceId !== payment.referenceId) return;
+    const remaining = Math.max(0, pendingPaymentStart.timestamp + pendingSupportDelayMs - Date.now());
+    const timeout = setTimeout(() => {
+      if (AppState.currentState === 'active') void refreshPaymentStatus();
+    }, remaining);
+    return () => clearTimeout(timeout);
+  }, [payment?.referenceId, payment?.status, pendingPaymentStart, refreshPaymentStatus]);
+
+  const openPaymentSupport = useCallback(async (phoneNumber: string) => {
+    const reference = payment?.referenceId;
+    const url = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(
+      `My subscription payment is still pending after 5 minutes. Payment reference: ${reference ?? 'not available'}. Please check its status.`,
+    )}`;
+    try {
+      await Linking.openURL(url);
+    } catch (linkError) {
+      setPaymentError(linkError instanceof Error
+        ? `Unable to open WhatsApp: ${linkError.message}`
+        : 'Unable to open WhatsApp. Please try again or contact support manually.');
+    }
+  }, [payment?.referenceId]);
 
   const active = subscription?.status === 'active';
   const pending = subscription?.status === 'pending';
@@ -253,13 +298,12 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
   };
 
   return (
-    <AppShell title="Subscription" subtitle="Choose a plan and request activation.">
+    <AppShell title="Subscription" subtitle="Choose a plan and request activation." onBack={onBack}>
       <KeyboardAwareScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         scrollToEndOnKeyboardShow
       >
-        {onBack && <Button label="Back to More" variant="ghost" onPress={onBack} />}
         {loading ? <Card><LoadingState label="Loading subscription status..." /></Card> : error && !subscription ? (
           <Card><EmptyState title="Subscription unavailable" description={error} action={<Button label="Try again" variant="secondary" onPress={() => setReloadKey((value) => value + 1)} />} /></Card>
         ) : <>
@@ -277,8 +321,8 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
           {error ? <FeedbackMessage message={error} /> : null}
           {paymentError ? <FeedbackMessage message={`Unable to refresh payment status: ${paymentError}`} /> : null}
           {paymentLoading ? <FeedbackMessage message="Checking payment status..." /> : null}
-          {message ? <FeedbackMessage message={message} variant={message.toLowerCase().includes('success') || message.toLowerCase().includes('active') ? 'success' : 'info'} /> : null}
-          {checkoutResult ? <Card compact><FeedbackMessage message={checkoutResult} variant="info" /></Card> : null}
+          {!paymentPending && message ? <FeedbackMessage message={message} variant={message.toLowerCase().includes('success') || message.toLowerCase().includes('active') ? 'success' : 'info'} /> : null}
+          {!paymentPending && checkoutResult ? <Card compact><FeedbackMessage message={checkoutResult} variant="info" /></Card> : null}
           {payment && (
             <Card compact style={styles.paymentCard}>
               <Text style={[styles.body, { color: theme.text }]}>
@@ -311,10 +355,30 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
                 </Text>
               )}
               {payment.status === 'pending' && (
-                <FeedbackMessage
-                  message="Approve the EVC Plus prompt on your phone. This screen checks for an update automatically; do not start another checkout while payment is pending."
-                  variant="info"
-                />
+                <>
+                  <FeedbackMessage
+                    message={paymentSupportReference === payment.referenceId
+                      ? 'This payment is still pending after 5 minutes. Its status is not confirmed as successful or failed. Please contact support and share your payment reference.'
+                      : 'Approve the EVC Plus prompt on your phone. This screen checks for an update automatically; do not start another checkout while payment is pending.'}
+                    variant="info"
+                  />
+                  {paymentSupportReference === payment.referenceId && (
+                    <View style={styles.supportSection}>
+                      <Button
+                        label="WhatsApp +252619355156"
+                        variant="secondary"
+                        fullWidth
+                        onPress={() => void openPaymentSupport('252619355156')}
+                      />
+                      <Button
+                        label="WhatsApp +252686859656"
+                        variant="secondary"
+                        fullWidth
+                        onPress={() => void openPaymentSupport('252686859656')}
+                      />
+                    </View>
+                  )}
+                </>
               )}
               {payment.status === 'failed' && (
                 <FeedbackMessage
@@ -334,8 +398,8 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
               )}
             </Card>
           )}
-          {pending ? <Card compact><FeedbackMessage message="Your subscription request is pending. You can submit another request after an administrator reviews it." variant="info" /></Card> : <>
-            {active && <FeedbackMessage message="An upgrade or extension request changes your current subscription to pending. Protected features may be unavailable until an administrator approves it." variant="info" />}
+          {pending ? !paymentPending && <Card compact><FeedbackMessage message="Your subscription request is pending. You can submit another request after an administrator reviews it." variant="info" /></Card> : <>
+            {active && !paymentPending && <FeedbackMessage message="An upgrade or extension request changes your current subscription to pending. Protected features may be unavailable until an administrator approves it." variant="info" />}
             <View style={styles.section}>
               <SectionHeader title={active ? 'Request an upgrade or extension' : 'Choose a plan'} detail="Secure checkout uses the same direct EVC Plus payment flow as the web app." />
               {(['basic', 'pro', 'unlimited'] as SubscriptionPlan[]).map((plan) => {
@@ -378,9 +442,6 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void } = {}) {
                 loading={requesting}
                 onPress={() => void submitRequest()}
               />
-              {paymentPending && (
-                <FeedbackMessage message="A payment is already awaiting confirmation. Wait for its result before starting another checkout." variant="info" />
-              )}
             </View>
           </>}
         </>}
@@ -397,6 +458,7 @@ const styles = StyleSheet.create({
   status: { ...Typography.caption, fontWeight: '700', borderRadius: Radius.sm, overflow: 'hidden', paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs },
   statusDetails: { gap: Spacing.xs },
   paymentCard: { gap: Spacing.sm },
+  supportSection: { gap: Spacing.sm },
   body: { ...Typography.label },
   meta: { ...Typography.helper },
   reference: { ...Typography.label, fontWeight: '700', letterSpacing: 0.3 },

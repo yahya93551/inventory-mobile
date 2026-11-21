@@ -23,7 +23,7 @@ export default function AppTabs() {
   const visibleTabs = tabs.filter((tab) => !tab.managementOnly || role !== 'sales');
 
   return (
-    <Tabs>
+    <Tabs options={{ backBehavior: 'history' }}>
       <TabSlot style={styles.slot} />
       <TabList asChild>
         <BottomTabList>

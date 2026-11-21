@@ -19,6 +19,13 @@ type Product = {
   converted_unit?: string | null;
   conversion_rate?: number | null;
   stock_remainder?: number | null;
+  allocated_quantity?: number;
+  allocation_availability?: {
+    base_quantity: number;
+    converted_quantity: number;
+    converted_unit: string | null;
+    conversion_rate: number | null;
+  };
 };
 
 type ProductInput = {
@@ -36,16 +43,29 @@ type ProductInput = {
 };
 
 type ProductImage = { uri: string; width: number; height: number };
+type ProductCustomField = {
+  field_name: string;
+  display_name: string;
+  field_type: 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'textarea' | 'currency';
+  is_required: boolean;
+  is_visible: boolean;
+  select_options?: string[] | null;
+  default_value?: string | null;
+};
 type StockFilter = 'all' | 'in' | 'low' | 'critical' | 'out';
+type InventorySummary = { loaded: number; lowStock: number; outOfStock: number };
 
 export type InventoryState = {
   role: TenantRole | null;
   products: Product[];
+  summary: InventorySummary;
   categories: string[];
+  customFields: ProductCustomField[];
   visibleFields: Set<string>;
   loading: boolean;
   loadingMore: boolean;
   error: string | null;
+  customFieldsError: string | null;
   hasMore: boolean;
   search: string;
   setSearch: (value: string) => void;
@@ -54,20 +74,46 @@ export type InventoryState = {
   refresh: () => void;
   loadMore: () => void;
   addProduct: (input: ProductInput, image?: Pick<ProductImage, 'uri' | 'width' | 'height'>) => Promise<{ error: string | null; product: Product | null }>;
-  updateProduct: (id: string, input: Partial<ProductInput>) => Promise<string | null>;
+  updateProduct: (id: string, input: Partial<ProductInput>, image?: Pick<ProductImage, 'uri' | 'width' | 'height'>) => Promise<string | null>;
   deleteProduct: (id: string) => Promise<string | null>;
+  restockProduct: (id: string, amount: number) => Promise<string | null>;
+  takeStock: (id: string, quantity: number, reason?: string) => Promise<string | null>;
+  dropTakenStock: (id: string, quantity: number) => Promise<string | null>;
 };
 
 const pageSize = 50;
 const fallbackVisibleFields = new Set(['name', 'category', 'cost_price', 'price', 'stock']);
 
-function applySearch(query: any, search: string) {
-  const value = search.trim();
-  if (!value) return query;
-  const numericSearch = Number(value);
-  const filters = [`name.ilike.%${value}%`, `category.ilike.%${value}%`];
-  if (!Number.isNaN(numericSearch)) filters.push(`price.eq.${numericSearch}`, `cost_price.eq.${numericSearch}`);
-  return query.or(filters.join(','));
+async function uploadProductImage(image: ProductImage) {
+  const manipulator = ImageManipulator.manipulate(image.uri);
+  if (Math.max(image.width, image.height) > 1024) {
+    if (image.width >= image.height) manipulator.resize({ width: 1024 });
+    else manipulator.resize({ height: 1024 });
+  }
+  const manipulatedImage = await manipulator.renderAsync();
+  const compressedImage = await manipulatedImage.saveAsync({ compress: 0.8, format: SaveFormat.JPEG });
+  const fileContents = await new ExpoFile(compressedImage.uri).arrayBuffer();
+  const path = `products/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+  const { error } = await supabase.storage
+    .from('product-images')
+    .upload(path, fileContents, { contentType: 'image/jpeg', upsert: false });
+  if (error) throw new Error(`Product image upload failed: ${error.message}`);
+
+  const { data } = supabase.storage.from('product-images').getPublicUrl(path);
+  if (!data.publicUrl) {
+    const { error: cleanupError } = await supabase.storage.from('product-images').remove([path]);
+    if (cleanupError) {
+      throw new Error(`Product image URL could not be created, and the uploaded image could not be cleaned up: ${cleanupError.message}`);
+    }
+    throw new Error('Product image upload succeeded, but its URL could not be created.');
+  }
+
+  return { path, url: data.publicUrl };
+}
+
+async function removeUploadedProductImage(path: string) {
+  const { error } = await supabase.storage.from('product-images').remove([path]);
+  return error?.message ?? null;
 }
 
 export function useInventory(): InventoryState {
@@ -75,6 +121,7 @@ export function useInventory(): InventoryState {
   const { role, tenantId, loading: roleLoading } = useTenantRole();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [customFields, setCustomFields] = useState<ProductCustomField[]>([]);
   const [visibleFields, setVisibleFields] = useState<Set<string>>(fallbackVisibleFields);
   const [search, setSearchState] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -84,10 +131,14 @@ export function useInventory(): InventoryState {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [customFieldsError, setCustomFieldsError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   const setSearch = useCallback((value: string) => setSearchState(value), []);
-  const refresh = useCallback(() => setAttempt((value) => value + 1), []);
+  const refresh = useCallback(() => {
+    setPage(0);
+    setAttempt((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     if (authLoading || roleLoading || !user) return;
@@ -109,29 +160,39 @@ export function useInventory(): InventoryState {
       setError(null);
 
       try {
-        let productQuery = supabase
-          .from('products')
-          .select('id,name,category,cost_price,price,stock,image_url,base_unit,converted_unit,conversion_rate,stock_remainder')
-          .order('created_at', { ascending: false })
-          .range(page * pageSize, page * pageSize + pageSize - 1);
-        productQuery = applySearch(productQuery, debouncedSearch);
+        const params = new URLSearchParams({
+          page: String(page + 1),
+          per_page: String(pageSize),
+        });
+        if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim());
 
-        const [productsResult, categoriesResult, fieldsResult] = await Promise.all([
-          productQuery,
+        const customFieldsRequest = page === 0
+          ? callWebApi<ProductCustomField[]>('/api/custom-fields').catch((fieldsError: unknown) => {
+            if (mounted) setCustomFieldsError(fieldsError instanceof Error ? fieldsError.message : 'Additional product fields could not be loaded.');
+            return [];
+          })
+          : Promise.resolve(null);
+
+        const [productsResult, categoriesResult, fieldsResult, customFieldsResult] = await Promise.all([
+          callWebApi<{ products: Product[]; count: number }>(`/api/products?${params.toString()}`),
           page === 0 ? supabase.from('categories').select('name').order('name', { ascending: true }) : Promise.resolve(null),
           page === 0 ? supabase.from('custom_fields').select('field_name,is_visible,is_system,field_order').eq('is_system', true).order('field_order', { ascending: true }) : Promise.resolve(null),
+          customFieldsRequest,
         ]);
 
-        if (productsResult.error) throw new Error(productsResult.error.message);
         if (categoriesResult?.error) throw new Error(categoriesResult.error.message);
         if (fieldsResult?.error) throw new Error(fieldsResult.error.message);
 
-        const nextProducts = (productsResult.data || []) as Product[];
+        const nextProducts = productsResult.products || [];
         if (!mounted) return;
         setProducts((current) => isFirstPage ? nextProducts : [...current, ...nextProducts]);
         setHasMore(nextProducts.length === pageSize);
         if (categoriesResult) setCategories((categoriesResult.data || []).map((item) => item.name).filter(Boolean));
         if (fieldsResult) setVisibleFields(fieldsResult.data?.length ? new Set(fieldsResult.data.filter((field) => field.is_visible).map((field) => field.field_name)) : fallbackVisibleFields);
+        if (customFieldsResult) {
+          setCustomFields(customFieldsResult.filter((field) => field.is_visible));
+          setCustomFieldsError(null);
+        }
       } catch (loadError) {
         if (mounted) setError(loadError instanceof Error ? loadError.message : 'Unable to load inventory.');
       } finally {
@@ -165,24 +226,9 @@ export function useInventory(): InventoryState {
     let uploadedImagePath: string | null = null;
     try {
       if (image) {
-        const manipulator = ImageManipulator.manipulate(image.uri);
-        if (Math.max(image.width, image.height) > 1024) {
-          if (image.width >= image.height) manipulator.resize({ width: 1024 });
-          else manipulator.resize({ height: 1024 });
-        }
-        const manipulatedImage = await manipulator.renderAsync();
-        const compressedImage = await manipulatedImage.saveAsync({ compress: 0.8, format: SaveFormat.JPEG });
-        const fileContents = await new ExpoFile(compressedImage.uri).arrayBuffer();
-        const imagePath = `products/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
-        const { error: uploadError } = await supabase.storage
-          .from('product-images')
-          .upload(imagePath, fileContents, { contentType: 'image/jpeg', upsert: false });
-        if (uploadError) throw new Error(`Product image upload failed: ${uploadError.message}`);
-        uploadedImagePath = imagePath;
-
-        const { data: imageData } = supabase.storage.from('product-images').getPublicUrl(imagePath);
-        if (!imageData.publicUrl) throw new Error('Product image upload succeeded, but its URL could not be created.');
-        Object.assign(payload, { image_url: imageData.publicUrl });
+        const uploadedImage = await uploadProductImage(image);
+        uploadedImagePath = uploadedImage.path;
+        Object.assign(payload, { image_url: uploadedImage.url });
       }
 
       const product = await callWebApi<Product>('/api/products', {
@@ -194,10 +240,10 @@ export function useInventory(): InventoryState {
     } catch (createError) {
       const message = createError instanceof Error ? createError.message : 'Unable to add product.';
       if (uploadedImagePath) {
-        const { error: cleanupError } = await supabase.storage.from('product-images').remove([uploadedImagePath]);
+        const cleanupError = await removeUploadedProductImage(uploadedImagePath);
         if (cleanupError) {
           return {
-            error: `${message} The uploaded image could not be cleaned up: ${cleanupError.message}`,
+            error: `${message} The uploaded image could not be cleaned up: ${cleanupError}`,
             product: null,
           };
         }
@@ -209,34 +255,81 @@ export function useInventory(): InventoryState {
     }
   }, [refresh, tenantId, user]);
 
-  const updateProduct = useCallback(async (id: string, input: Partial<ProductInput>) => {
-    const updatesConversionMetadata =
-      Object.prototype.hasOwnProperty.call(input, 'base_unit')
-      || Object.prototype.hasOwnProperty.call(input, 'converted_unit')
-      || Object.prototype.hasOwnProperty.call(input, 'conversion_rate');
-
-    if (updatesConversionMetadata) {
-      try {
-        await callWebApi('/api/products', {
-          method: 'PATCH',
-          body: JSON.stringify({ id, updates: input }),
-        });
-      } catch (updateError) {
-        return updateError instanceof Error ? updateError.message : 'Unable to update product.';
+  const updateProduct = useCallback(async (id: string, input: Partial<ProductInput>, image?: ProductImage) => {
+    let uploadedImagePath: string | null = null;
+    try {
+      const updates = { ...input };
+      if (image) {
+        const uploadedImage = await uploadProductImage(image);
+        uploadedImagePath = uploadedImage.path;
+        updates.image_url = uploadedImage.url;
       }
-    } else {
-      const { error: updateError } = await supabase.from('products').update(input).eq('id', id);
-      if (updateError) return updateError.message;
+      await callWebApi('/api/products', {
+        method: 'PATCH',
+        body: JSON.stringify({ id, updates }),
+      });
+    } catch (updateError) {
+      const message = updateError instanceof Error ? updateError.message : 'Unable to update product.';
+      if (uploadedImagePath) {
+        const cleanupError = await removeUploadedProductImage(uploadedImagePath);
+        if (cleanupError) return `${message} The uploaded image could not be cleaned up: ${cleanupError}`;
+      }
+      return message;
     }
     refresh();
     return null;
   }, [refresh]);
 
   const deleteProduct = useCallback(async (id: string) => {
-    const { error: deleteError } = await supabase.from('products').delete().eq('id', id);
-    if (deleteError) return deleteError.message;
+    try {
+      await callWebApi('/api/products', {
+        method: 'DELETE',
+        body: JSON.stringify({ id }),
+      });
+    } catch (deleteError) {
+      return deleteError instanceof Error ? deleteError.message : 'Unable to delete product.';
+    }
     refresh();
     return null;
+  }, [refresh]);
+
+  const restockProduct = useCallback(async (id: string, amount: number) => {
+    try {
+      await callWebApi('/api/products/restock', {
+        method: 'POST',
+        body: JSON.stringify({ id, amount }),
+      });
+      refresh();
+      return null;
+    } catch (restockError) {
+      return restockError instanceof Error ? restockError.message : 'Unable to restock product.';
+    }
+  }, [refresh]);
+
+  const takeStock = useCallback(async (id: string, quantity: number, reason?: string) => {
+    try {
+      await callWebApi('/api/products/load', {
+        method: 'POST',
+        body: JSON.stringify({ id, quantity, reason }),
+      });
+      refresh();
+      return null;
+    } catch (loadError) {
+      return loadError instanceof Error ? loadError.message : 'Unable to take stock.';
+    }
+  }, [refresh]);
+
+  const dropTakenStock = useCallback(async (id: string, quantity: number) => {
+    try {
+      await callWebApi('/api/products/drop', {
+        method: 'POST',
+        body: JSON.stringify({ id, quantity }),
+      });
+      refresh();
+      return null;
+    } catch (dropError) {
+      return dropError instanceof Error ? dropError.message : 'Unable to return taken stock.';
+    }
   }, [refresh]);
 
   const filteredProducts = products.filter((product) => {
@@ -247,15 +340,23 @@ export function useInventory(): InventoryState {
     if (stockFilter === 'in') return stock >= 20;
     return true;
   });
+  const summary: InventorySummary = {
+    loaded: products.length,
+    lowStock: products.filter((product) => Number(product.stock) > 0 && Number(product.stock) < 5).length,
+    outOfStock: products.filter((product) => product.stock === 0).length,
+  };
 
   return {
     role,
     products: filteredProducts,
+    summary,
     categories,
+    customFields,
     visibleFields,
     loading: loading || authLoading || roleLoading,
     loadingMore,
     error,
+    customFieldsError,
     hasMore,
     search,
     setSearch,
@@ -266,7 +367,10 @@ export function useInventory(): InventoryState {
     addProduct,
     updateProduct,
     deleteProduct,
+    restockProduct,
+    takeStock,
+    dropTakenStock,
   };
 }
 
-export type { Product, ProductInput, StockFilter };
+export type { Product, ProductCustomField, ProductInput, StockFilter };

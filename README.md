@@ -54,3 +54,15 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## Release validation
+
+Before release, run:
+
+```bash
+npm run validate:release
+```
+
+This checks required app URL settings, app/EAS identifiers and build profiles, TypeScript, lint, and an Android bundle export. The bundle is created in a temporary directory and removed after validation.
+
+Set `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_SUPABASE_URL`, and `EXPO_PUBLIC_SUPABASE_ANON_KEY` in `.env.local` for local validation. Configure the same public app values in the matching EAS `development`, `preview`, and `production` environments before cloud builds. Use `eas build --profile preview --platform android` for a test APK and `eas build --profile production` for store builds.

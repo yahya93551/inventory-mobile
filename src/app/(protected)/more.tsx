@@ -1,7 +1,6 @@
-import { router } from 'expo-router';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth, useTenantRole, type TenantRole } from '@/auth';
 import { AppShell } from '@/components/app-shell';
@@ -11,10 +10,12 @@ import { EmployeesScreen } from '@/components/employees-screen';
 import { SubscriptionScreen } from '@/components/subscription-screen';
 import { DebtsScreen } from '@/app/(protected)/more/[section]';
 import { SettingsScreen } from '@/components/settings-screen';
+import { AccountToolsScreen } from '@/components/account-tools-screen';
+import { SupportScreen } from '@/components/support-screen';
 import { ControlHeights, Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-type MoreSection = 'debts' | 'employees' | 'categories' | 'settings' | 'subscription';
+type MoreSection = 'debts' | 'employees' | 'categories' | 'settings' | 'subscription' | 'activity' | 'security' | 'privacy' | 'support';
 type MoreIcon = Exclude<SymbolViewProps['name'], string>;
 type MoreItem = { key: MoreSection; label: string; description: string; icon: MoreIcon; roles: TenantRole[] };
 
@@ -32,11 +33,21 @@ const menuSections: { title: string; items: MoreItem[] }[] = [
     items: [{ key: 'debts', label: 'Debts', description: 'Review outstanding customer balances.', icon: { ios: 'creditcard', android: 'payments', web: 'payments' }, roles: ['owner'] }],
   },
   {
+    title: 'Management',
+    items: [{ key: 'activity', label: 'Activity log', description: 'Review actions performed in this workspace.', icon: { ios: 'clock.arrow.circlepath', android: 'history', web: 'history' }, roles: ['owner'] }],
+  },
+  {
     title: 'Account',
     items: [
       { key: 'settings', label: 'Settings', description: 'View business details and app preferences.', icon: { ios: 'gearshape', android: 'settings', web: 'settings' }, roles: ['owner', 'accountant'] },
+      { key: 'security', label: 'Security', description: 'Manage MFA and active account sessions.', icon: { ios: 'lock.shield', android: 'security', web: 'security' }, roles: ['owner', 'accountant'] },
+      { key: 'privacy', label: 'Privacy & data', description: 'Export workspace data or request account deletion.', icon: { ios: 'hand.raised', android: 'privacy_tip', web: 'privacy_tip' }, roles: ['owner', 'accountant'] },
       { key: 'subscription', label: 'Subscription', description: 'Review your plan and request activation.', icon: { ios: 'creditcard', android: 'credit_card', web: 'credit_card' }, roles: ['owner'] },
     ],
+  },
+  {
+    title: 'Help',
+    items: [{ key: 'support', label: 'Support & help', description: 'Contact support or view common answers.', icon: { ios: 'questionmark.circle', android: 'help_outline', web: 'help_outline' }, roles: ['owner', 'accountant', 'sales'] }],
   },
 ];
 
@@ -66,9 +77,20 @@ export default function MoreScreen() {
   const theme = useTheme();
   const { role, loading: roleLoading, error: roleError, refresh: refreshRole } = useTenantRole();
   const { signOut } = useAuth();
-  const [activeSection, setActiveSection] = useState<'categories' | 'debts' | 'employees' | 'settings' | 'subscription' | null>(null);
+  const [activeSection, setActiveSection] = useState<MoreSection | null>(null);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeSection) return;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setActiveSection(null);
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [activeSection]);
 
   const handleSignOut = async () => {
     setLogoutBusy(true);
@@ -92,6 +114,10 @@ export default function MoreScreen() {
   if (activeSection === 'employees') return <EmployeesScreen onBack={() => setActiveSection(null)} />;
   if (activeSection === 'settings') return <SettingsScreen onBack={() => setActiveSection(null)} />;
   if (activeSection === 'subscription') return <SubscriptionScreen onBack={() => setActiveSection(null)} />;
+  if (activeSection === 'support') return <SupportScreen onBack={() => setActiveSection(null)} />;
+  if (activeSection === 'activity' || activeSection === 'security' || activeSection === 'privacy') {
+    return <AccountToolsScreen section={activeSection} onBack={() => setActiveSection(null)} />;
+  }
 
   return (
     <AppShell title="More" subtitle="Workspace tools and account settings.">
@@ -125,7 +151,7 @@ export default function MoreScreen() {
               <View key={section.title} style={styles.section}>
                 <SectionHeader title={section.title} />
                 <View style={[styles.menuGroup, { borderColor: theme.border }]}>
-                  {section.items.map((item, index) => <MoreMenuRow key={item.key} item={item} last={index === section.items.length - 1} onPress={() => item.key === 'categories' || item.key === 'debts' || item.key === 'employees' || item.key === 'settings' || item.key === 'subscription' ? setActiveSection(item.key) : router.push({ pathname: '/more/[section]', params: { section: item.key } })} />)}
+                  {section.items.map((item, index) => <MoreMenuRow key={item.key} item={item} last={index === section.items.length - 1} onPress={() => setActiveSection(item.key)} />)}
                 </View>
               </View>
             ))}

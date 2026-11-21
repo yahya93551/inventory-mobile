@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ReactNode } from 'react';
+import { SymbolView } from 'expo-symbols';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Layout, Radius, Spacing, Typography } from '@/constants/theme';
@@ -8,17 +9,32 @@ import { useTheme } from '@/hooks/use-theme';
 type MobileHeaderProps = {
   title: string;
   subtitle?: string;
+  onBack?: () => void;
   action?: ReactNode;
   onActionPress?: () => void;
   actionLabel?: string;
 };
 
-export function MobileHeader({ title, subtitle, action, onActionPress, actionLabel }: MobileHeaderProps) {
+export function MobileHeader({ title, subtitle, onBack, action, onActionPress, actionLabel }: MobileHeaderProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
   return (
     <View style={[styles.container, { paddingTop: Math.max(insets.top, Spacing.two), borderBottomColor: theme.border }]}>
+      {onBack && (
+        <Pressable
+          accessibilityLabel="Back to More"
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={onBack}
+          style={({ pressed }) => [styles.backAction, { backgroundColor: theme.surface }, pressed && styles.pressed]}>
+          <SymbolView
+            name={{ ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' }}
+            tintColor={theme.text}
+            size={22}
+          />
+        </Pressable>
+      )}
       <View style={styles.copy}>
         <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
         {subtitle && <Text style={[styles.subtitle, { color: theme.textSecondary }]}>{subtitle}</Text>}
@@ -43,5 +59,6 @@ const styles = StyleSheet.create({
   title: { ...Typography.screenTitle },
   subtitle: { ...Typography.caption },
   action: { minWidth: Layout.headerActionSize, minHeight: Layout.headerActionSize, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  backAction: { width: Layout.headerActionSize, height: Layout.headerActionSize, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
   pressed: { opacity: 0.7 },
 });

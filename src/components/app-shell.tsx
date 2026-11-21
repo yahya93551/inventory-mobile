@@ -8,18 +8,19 @@ import { useTheme } from '@/hooks/use-theme';
 type AppShellProps = {
   title: string;
   subtitle?: string;
+  onBack?: () => void;
   action?: ReactNode;
   onActionPress?: () => void;
   actionLabel?: string;
   children: ReactNode;
 };
 
-export function AppShell({ title, subtitle, action, onActionPress, actionLabel, children }: AppShellProps) {
+export function AppShell({ title, subtitle, onBack, action, onActionPress, actionLabel, children }: AppShellProps) {
   const theme = useTheme();
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <MobileHeader title={title} subtitle={subtitle} action={action} onActionPress={onActionPress} actionLabel={actionLabel} />
+      <MobileHeader title={title} subtitle={subtitle} onBack={onBack} action={action} onActionPress={onActionPress} actionLabel={actionLabel} />
       <View style={styles.content}>{children}</View>
     </View>
   );
